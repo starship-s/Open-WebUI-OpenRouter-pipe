@@ -23,9 +23,20 @@ except ImportError:
     aiohttp = None
 
 try:
+    from open_webui_openrouter_pipe.models.registry import OpenRouterModelRegistry
+except Exception:
+    OpenRouterModelRegistry = None
+
+try:
     from open_webui.env import SRC_LOG_LEVELS
 except ImportError:
     SRC_LOG_LEVELS = {}
+
+try:
+    from open_webui_openrouter_pipe.core.config import _PIPE_RUNTIME_ID, _DEFAULT_PIPE_ID
+except Exception:
+    _PIPE_RUNTIME_ID = ""
+    _DEFAULT_PIPE_ID = "open_webui_openrouter_pipe"
 
 OWUI_OPENROUTER_PIPE_MARKER = "openrouter_pipe:zdr_filter:v1"
 _FEATURE_FLAG = "zdr"
@@ -43,6 +54,7 @@ class ZDRProviderCache:
     _providers: Dict[str, list[str]] = {}  # normalized model_id -> provider tags
     _last_fetch: float = 0.0
     _lock: asyncio.Lock = asyncio.Lock()
+    _DATE_SUFFIX_RE = re.compile(r"-\d{8}$")
     
     @classmethod
     async def get_providers_for_model(
@@ -80,9 +92,14 @@ class ZDRProviderCache:
     @classmethod
     def _get_cached_providers(cls, model_id: str) -> list[str]:
         """Get providers from cache for a normalized model ID."""
-        normalized = cls._normalize_model_id(model_id)
+        normalized = cls._base_model(cls._normalize_model_id(model_id))
         providers = cls._providers.get(normalized, [])
         
+        if not providers:
+            stripped = cls._strip_dated_suffix(normalized)
+            if stripped != normalized:
+                providers = cls._providers.get(stripped, [])
+
         # If not found, try without variant suffix (e.g., :free)
         if not providers and ":" in normalized:
             base = normalized.split(":", 1)[0]
@@ -103,6 +120,7 @@ class ZDRProviderCache:
         if not aiohttp:
             logger.warning("aiohttp not available, cannot fetch ZDR endpoints")
             return
+        assert aiohttp is not None
         
         url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
         headers = {
@@ -146,7 +164,10 @@ class ZDRProviderCache:
                 continue
 
             normalized = cls._base_model(cls._normalize_model_id(model_slug))
-            canonical_norm = alias_to_norm.get(normalized, normalized)
+            canonical_norm = alias_to_norm.get(normalized)
+            if not canonical_norm:
+                stripped = cls._strip_dated_suffix(normalized)
+                canonical_norm = alias_to_norm.get(stripped, stripped)
             providers = mapping.setdefault(canonical_norm, [])
             if provider_tag not in providers:
                 providers.append(provider_tag)
@@ -157,10 +178,11 @@ class ZDRProviderCache:
     
     @staticmethod
     async def _fetch_frontend_catalog(
-        session: "aiohttp.ClientSession", logger: logging.Logger
+        session: Any, logger: logging.Logger
     ) -> dict[str, Any] | None:
         """Best-effort fetch of the frontend catalog for alias mapping."""
         try:
+            assert aiohttp is not None
             async with session.get(
                 _OPENROUTER_FRONTEND_MODELS_URL,
                 timeout=aiohttp.ClientTimeout(total=10),
@@ -201,6 +223,13 @@ class ZDRProviderCache:
         if not isinstance(model_id, str):
             return ""
         return model_id.split(":", 1)[0]
+
+    @staticmethod
+    def _strip_dated_suffix(model_id: str) -> str:
+        """Strip permaslug date suffixes like '-20251217'."""
+        if not isinstance(model_id, str):
+            return ""
+        return ZDRProviderCache._DATE_SUFFIX_RE.sub("", model_id)
 
     @staticmethod
     def _safe_split(value: Any, sep: str) -> list[str]:
@@ -366,6 +395,26 @@ class ZDRProviderCache:
         return ""
 
 
+def _strip_pipe_prefix(model_id: str) -> str:
+    if not isinstance(model_id, str) or not model_id:
+        return ""
+    prefixes = [_PIPE_RUNTIME_ID, _DEFAULT_PIPE_ID, "open_webui_openrouter_pipe"]
+    for prefix in prefixes:
+        if prefix and model_id.startswith(f"{prefix}."):
+            return model_id[len(prefix) + 1 :]
+    return model_id
+
+
+def _unsanitize_model_id(model_id: str) -> str:
+    """Convert dot-sanitized ids back to author/model form when needed."""
+    if not isinstance(model_id, str) or not model_id:
+        return ""
+    if "/" not in model_id and "." in model_id:
+        head, tail = model_id.split(".", 1)
+        return f"{head}/{tail}"
+    return model_id
+
+
 class Filter:
     """
     Zero Data Retention filter for OpenRouter requests.
@@ -418,18 +467,41 @@ class Filter:
             # Set ZDR to true
             provider["zdr"] = True
             
-            # Get model ID from body
+            # Get model ID from body/metadata
             model_id = body.get("model_id", "") or body.get("model", "")
+            if not model_id and isinstance(__metadata__, dict):
+                meta_model = __metadata__.get("model")
+                if isinstance(meta_model, dict):
+                    model_id = (
+                        meta_model.get("original_id")
+                        or meta_model.get("openrouter_id")
+                        or meta_model.get("id")
+                        or ""
+                    )
             if not model_id and isinstance(body.get("models"), list):
                 models_list = body["models"]
                 if models_list:
                     model_id = models_list[0]
+
+            model_id = _strip_pipe_prefix(str(model_id)) if model_id else ""
+            model_id = _unsanitize_model_id(model_id) if model_id else ""
             
             # Fetch ZDR providers for this model
+            providers: list[str] = []
+            if model_id and OpenRouterModelRegistry is not None:
+                try:
+                    providers = OpenRouterModelRegistry.zdr_providers_for(str(model_id))
+                except Exception as exc:
+                    self.log.debug(
+                        "ZDR filter: Registry lookup failed for model %s: %s",
+                        model_id,
+                        exc,
+                    )
+
             if model_id and aiohttp:
                 api_key = os.environ.get("OPENROUTER_API_KEY", "")
                 http_referer = os.environ.get("HTTP_REFERER_OVERRIDE", "").strip() or None
-                if api_key:
+                if not providers and api_key:
                     try:
                         # Run async function in sync context
                         loop = None
@@ -469,43 +541,52 @@ class Filter:
                                 )
                             )
                             loop.close()
-                        
-                        if providers:
-                            existing_only = provider.get("only")
-                            if isinstance(existing_only, list):
-                                merged = []
-                                seen = set()
-                                for entry in list(existing_only) + providers:
-                                    if not isinstance(entry, str):
-                                        continue
-                                    cleaned = entry.strip()
-                                    if not cleaned or cleaned in seen:
-                                        continue
-                                    seen.add(cleaned)
-                                    merged.append(cleaned)
-                                provider["only"] = merged
-                            else:
-                                provider["only"] = providers
-                            self.log.debug(
-                                "ZDR filter: Set provider.only=%s for model %s",
-                                providers,
-                                model_id,
-                            )
-                        else:
-                            self.log.debug(
-                                "ZDR filter: No ZDR providers found for model %s",
-                                model_id,
-                            )
                     except Exception as exc:
                         self.log.warning(
                             "ZDR filter: Failed to fetch providers for model %s: %s",
                             model_id,
                             exc,
                         )
-                else:
+                elif not providers:
                     self.log.debug("ZDR filter: OPENROUTER_API_KEY not set, skipping provider.only")
             elif not aiohttp:
                 self.log.warning("ZDR filter: aiohttp not available, cannot fetch ZDR providers")
+
+            if providers:
+                self.log.info(
+                    "ZDR filter: resolved providers for model %s -> %s",
+                    model_id,
+                    providers,
+                )
+                existing_only = provider.get("only")
+                if isinstance(existing_only, list):
+                    merged = []
+                    seen = set()
+                    for entry in list(existing_only) + providers:
+                        if not isinstance(entry, str):
+                            continue
+                        cleaned = entry.strip()
+                        if not cleaned or cleaned in seen:
+                            continue
+                        seen.add(cleaned)
+                        merged.append(cleaned)
+                    provider["only"] = merged
+                else:
+                    provider["only"] = providers
+                self.log.debug(
+                    "ZDR filter: Set provider.only=%s for model %s",
+                    providers,
+                    model_id,
+                )
+            else:
+                self.log.info(
+                    "ZDR filter: no providers resolved for model %s",
+                    model_id,
+                )
+                self.log.debug(
+                    "ZDR filter: No ZDR providers found for model %s",
+                    model_id,
+                )
             
             self.log.debug("ZDR filter: Enforcing Zero Data Retention mode")
 

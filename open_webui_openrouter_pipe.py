@@ -6,7 +6,7 @@ git_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
 id: open_webui_openrouter_pipe
 description: OpenRouter Responses API pipe with ZDR enforcement and custom features
 required_open_webui_version: 0.6.28
-version: 2.0.25-zdr
+version: 2.0.26-zdr
 requirements: git+https://github.com/starship-s/Open-WebUI-OpenRouter-pipe.git@main
 license: MIT
 
