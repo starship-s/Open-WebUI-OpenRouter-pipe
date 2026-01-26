@@ -398,11 +398,36 @@ class ZDRProviderCache:
 def _strip_pipe_prefix(model_id: str) -> str:
     if not isinstance(model_id, str) or not model_id:
         return ""
-    prefixes = [_PIPE_RUNTIME_ID, _DEFAULT_PIPE_ID, "open_webui_openrouter_pipe"]
+    prefixes = [
+        _PIPE_RUNTIME_ID,
+        _DEFAULT_PIPE_ID,
+        "open_webui_openrouter_pipe",
+        f"{_DEFAULT_PIPE_ID}_bundled",
+        "open_webui_openrouter_pipe_bundled",
+    ]
+    if "/" in model_id:
+        head, tail = model_id.split("/", 1)
+        if head in prefixes or head.startswith("open_webui_openrouter_pipe"):
+            return tail
     for prefix in prefixes:
         if prefix and model_id.startswith(f"{prefix}."):
             return model_id[len(prefix) + 1 :]
     return model_id
+
+
+def _run_or_schedule(coro: "Any", logger: logging.Logger) -> Any:
+    """Run coroutine if no loop running, else schedule it."""
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop and running_loop.is_running():
+        running_loop.create_task(coro)
+        logger.debug("ZDR filter: scheduled async provider refresh on running loop")
+        return None
+
+    return asyncio.run(coro)
 
 
 def _unsanitize_model_id(model_id: str) -> str:
@@ -498,49 +523,32 @@ class Filter:
                         exc,
                     )
 
+            if not providers and model_id:
+                try:
+                    providers = ZDRProviderCache._get_cached_providers(model_id)
+                except Exception as exc:
+                    self.log.debug(
+                        "ZDR filter: Cache lookup failed for model %s: %s",
+                        model_id,
+                        exc,
+                    )
+
             if model_id and aiohttp:
                 api_key = os.environ.get("OPENROUTER_API_KEY", "")
                 http_referer = os.environ.get("HTTP_REFERER_OVERRIDE", "").strip() or None
                 if not providers and api_key:
                     try:
-                        # Run async function in sync context
-                        loop = None
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # If loop is running, create a new one for this sync context
-                                loop = asyncio.new_event_loop()
-                                providers = loop.run_until_complete(
-                                    ZDRProviderCache.get_providers_for_model(
-                                        model_id,
-                                        api_key=api_key,
-                                        http_referer=http_referer,
-                                        logger=self.log,
-                                    )
-                                )
-                                loop.close()
-                            else:
-                                providers = loop.run_until_complete(
-                                    ZDRProviderCache.get_providers_for_model(
-                                        model_id,
-                                        api_key=api_key,
-                                        http_referer=http_referer,
-                                        logger=self.log,
-                                    )
-                                )
-                        except RuntimeError:
-                            # No event loop, create one
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            providers = loop.run_until_complete(
-                                ZDRProviderCache.get_providers_for_model(
-                                    model_id,
-                                    api_key=api_key,
-                                    http_referer=http_referer,
-                                    logger=self.log,
-                                )
-                            )
-                            loop.close()
+                        result = _run_or_schedule(
+                            ZDRProviderCache.get_providers_for_model(
+                                model_id,
+                                api_key=api_key,
+                                http_referer=http_referer,
+                                logger=self.log,
+                            ),
+                            self.log,
+                        )
+                        if isinstance(result, list):
+                            providers = result
                     except Exception as exc:
                         self.log.warning(
                             "ZDR filter: Failed to fetch providers for model %s: %s",
@@ -553,11 +561,6 @@ class Filter:
                 self.log.warning("ZDR filter: aiohttp not available, cannot fetch ZDR providers")
 
             if providers:
-                self.log.info(
-                    "ZDR filter: resolved providers for model %s -> %s",
-                    model_id,
-                    providers,
-                )
                 existing_only = provider.get("only")
                 if isinstance(existing_only, list):
                     merged = []
@@ -579,10 +582,6 @@ class Filter:
                     model_id,
                 )
             else:
-                self.log.info(
-                    "ZDR filter: no providers resolved for model %s",
-                    model_id,
-                )
                 self.log.debug(
                     "ZDR filter: No ZDR providers found for model %s",
                     model_id,
