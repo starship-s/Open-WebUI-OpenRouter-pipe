@@ -6332,13 +6332,14 @@ class Filter:
 
     @timed
     def _apply_model_filters(self, models: list[dict[str, Any]], valves: "Pipe.Valves") -> list[dict[str, Any]]:
-        """Apply model capability filters (free pricing/tool calling) to a model list."""
+        """Apply model capability filters (free pricing/tool calling/ZDR) to a model list."""
         if not models:
             return []
 
+        hide_non_zdr = bool(getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False))
         free_mode = (getattr(valves, "FREE_MODEL_FILTER", "all") or "all").strip().lower()
         tool_mode = (getattr(valves, "TOOL_CALLING_FILTER", "all") or "all").strip().lower()
-        if free_mode == "all" and tool_mode == "all":
+        if not hide_non_zdr and free_mode == "all" and tool_mode == "all":
             return models
 
         filtered: list[dict[str, Any]] = []
@@ -6346,6 +6347,13 @@ class Filter:
             norm_id = model.get("norm_id") or ""
             if not norm_id:
                 continue
+
+            if hide_non_zdr:
+                providers = OpenRouterModelRegistry.zdr_providers_for(
+                    model.get("id") or norm_id
+                )
+                if not providers:
+                    continue
 
             if free_mode != "all":
                 is_free = self._is_free_model(norm_id)
@@ -6501,6 +6509,13 @@ class Filter:
         if model_id_filter and model_id_filter.lower() != "auto":
             if model_norm_id not in allowlist_norm_ids:
                 reasons.append("MODEL_ID")
+
+        if (
+            getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False)
+            and model_norm_id in catalog_norm_ids
+        ):
+            if not OpenRouterModelRegistry.zdr_providers_for(model_norm_id):
+                reasons.append("HIDE_MODELS_WITHOUT_ZDR")
 
         free_mode = (getattr(valves, "FREE_MODEL_FILTER", "all") or "all").strip().lower()
         if free_mode != "all" and model_norm_id in catalog_norm_ids:

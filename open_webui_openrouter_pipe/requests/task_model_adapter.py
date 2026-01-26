@@ -103,6 +103,28 @@ class TaskModelAdapter:
         non-streaming call and extracts the plain text from the response items.
         """
         task_body = dict(body or {})
+
+        # Apply task model overrides based on task type
+        task_name = self._task_name(task_context)
+        task_name_lower = task_name.lower() if task_name else ""
+        if task_name_lower:
+            title_override_model = (getattr(valves, "TASK_TITLE_MODEL_ID", "") or "").strip()
+            followup_override_model = (getattr(valves, "TASK_FOLLOWUP_MODEL_ID", "") or "").strip()
+            if title_override_model and "title" in task_name_lower:
+                self.logger.debug(
+                    "Using TASK_TITLE_MODEL_ID override for task=%s: %s",
+                    task_name,
+                    title_override_model,
+                )
+                task_body["model"] = title_override_model
+            elif followup_override_model and "follow" in task_name_lower:
+                self.logger.debug(
+                    "Using TASK_FOLLOWUP_MODEL_ID override for task=%s: %s",
+                    task_name,
+                    followup_override_model,
+                )
+                task_body["model"] = followup_override_model
+
         source_model_id = task_body.get("model", "")
         task_body["model"] = OpenRouterModelRegistry.api_model_id(source_model_id) or source_model_id
         task_body.setdefault("input", "")

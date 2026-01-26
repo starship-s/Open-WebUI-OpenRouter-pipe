@@ -2,6 +2,24 @@
 
 This folder contains reference Open WebUI filter functions used alongside the OpenRouter pipe.
 
+**Fork URL:** https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
+
+## ZDR (Zero Data Retention) filter
+
+- `openrouter_zdr_filter.py` enforces Zero Data Retention mode on all OpenRouter requests by setting `provider.zdr=true`.
+- When enabled, only ZDR-compliant providers will be used for requests.
+- The filter is toggleable — users can disable it per-chat if needed.
+- **Note**: Not all providers support ZDR. Requests may fail if no ZDR-compliant providers are available for a model. Consider enabling `ALLOW_FALLBACKS` in provider routing settings.
+
+To install: Copy the contents into Open WebUI Functions (Admin → Functions → Add Function).
+
+### Hiding Non-ZDR Models
+
+To also **hide** models that don't have ZDR providers from the model list, enable the `HIDE_MODELS_WITHOUT_ZDR` valve on the pipe itself:
+1. Go to **Admin → Functions → [OpenRouter Pipe] → Valves**
+2. Set `HIDE_MODELS_WITHOUT_ZDR` to `True`
+3. Refresh the model list
+
 ## OpenRouter Search toggle
 
 - `openrouter_search_toggle.py` is the companion *toggleable filter* used to enable OpenRouter-native web search.
