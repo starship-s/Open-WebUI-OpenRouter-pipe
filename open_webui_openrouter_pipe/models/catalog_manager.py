@@ -107,7 +107,6 @@ class ModelCatalogManager:
             pipe_identifier: The pipe's identifier (e.g., "openrouter")
         """
         valves = self._pipe.valves
-        excluded_zdr_providers = self._pipe._zdr_excluded_provider_set(valves)
 
         # Check if provider routing is enabled (either ADMIN or USER lists are non-empty)
         admin_routing_models = (getattr(valves, "ADMIN_PROVIDER_ROUTING_MODELS", "") or "").strip()
@@ -496,7 +495,7 @@ class ModelCatalogManager:
     ) -> None:
         """Sync model metadata (capabilities, profile images, descriptions) into OWUI's Models table."""
         valves = self._pipe.valves
-        excluded_zdr_providers = self._pipe._zdr_excluded_provider_set(valves)
+        excluded_zdr_providers: set[str] = self._pipe._zdr_excluded_provider_set(valves)
 
         # Check if provider routing is enabled (either ADMIN or USER lists are non-empty)
         admin_routing_models = (getattr(valves, "ADMIN_PROVIDER_ROUTING_MODELS", "") or "").strip()
