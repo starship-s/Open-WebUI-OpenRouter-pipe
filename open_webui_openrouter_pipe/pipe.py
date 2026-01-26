@@ -1403,6 +1403,92 @@ class Filter:
             .replace("__MARKER__", _DIRECT_UPLOADS_FILTER_MARKER)
         )
 
+    @staticmethod
+    @timed
+    def _render_zdr_filter_source() -> str:
+        """Return the canonical OWUI filter source for the ZDR (Zero Data Retention) toggle."""
+        # NOTE: This file is inserted into Open WebUI's Functions table as a *filter* function.
+        # It must not depend on this pipe module at runtime.
+        template = '''"""
+title: ZDR (Zero Data Retention)
+author: starship-s
+author_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
+id: __FILTER_ID__
+description: Enforces Zero Data Retention mode on all OpenRouter requests. Only ZDR-compliant providers will be used.
+version: 0.2.0
+license: MIT
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+try:
+    from open_webui.env import SRC_LOG_LEVELS
+except ImportError:
+    SRC_LOG_LEVELS = {}
+
+OWUI_OPENROUTER_PIPE_MARKER = "__MARKER__"
+_FEATURE_FLAG = "zdr"
+
+
+class Filter:
+    """
+    Zero Data Retention filter for OpenRouter requests.
+    
+    When enabled, this filter sets provider.zdr=true on all requests,
+    ensuring that only ZDR-compliant providers are used. This is useful
+    for compliance with data retention policies.
+    
+    This filter enforces ZDR on requests. To also HIDE non-ZDR models from
+    the model list, enable the HIDE_MODELS_WITHOUT_ZDR valve on the pipe itself
+    (Admin -> Functions -> [OpenRouter Pipe] -> Valves).
+    
+    See: https://openrouter.ai/docs/provider-routing
+    """
+    
+    # Toggleable filter (shows a switch in the Integrations menu).
+    # Set to True so users can disable ZDR per-chat if needed.
+    toggle = True
+
+    def __init__(self) -> None:
+        self.log = logging.getLogger("openrouter.zdr.filter")
+        self.log.setLevel(SRC_LOG_LEVELS.get("OPENAI", logging.INFO))
+        self.toggle = True
+
+    def inlet(
+        self,
+        body: dict[str, Any],
+        __metadata__: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Inject ZDR requirement into request metadata for the OpenRouter pipe."""
+        if __metadata__ is not None and not isinstance(__metadata__, dict):
+            return body
+
+        if isinstance(__metadata__, dict):
+            # Get or create the openrouter_pipe metadata section
+            prev_pipe_meta = __metadata__.get("openrouter_pipe")
+            pipe_meta = dict(prev_pipe_meta) if isinstance(prev_pipe_meta, dict) else {}
+            __metadata__["openrouter_pipe"] = pipe_meta
+
+            # Get or create the provider section
+            prev_provider = pipe_meta.get("provider")
+            provider = dict(prev_provider) if isinstance(prev_provider, dict) else {}
+            pipe_meta["provider"] = provider
+
+            # Set ZDR to true
+            provider["zdr"] = True
+            self.log.debug("ZDR filter: Enforcing Zero Data Retention mode")
+
+        return body
+'''
+
+        return (
+            template.replace("__FILTER_ID__", _ZDR_FILTER_PREFERRED_FUNCTION_ID)
+            .replace("__MARKER__", _ZDR_FILTER_MARKER)
+        )
+
     @timed
     def _ensure_ors_filter_function_id(self) -> str | None:
         """Ensure the OpenRouter Search companion filter exists (and is up to date), returning its OWUI function id."""
@@ -1627,6 +1713,131 @@ class Filter:
             existing_content = (getattr(chosen, "content", "") or "").strip() + "\n"
             if existing_content != desired_source:
                 self.logger.info("Updating OpenRouter Direct Uploads filter: %s", function_id)
+                Functions.update_function_by_id(
+                    function_id,
+                    {
+                        "content": desired_source,
+                        "name": desired_name,
+                        "meta": desired_meta,
+                        "type": "filter",
+                        "is_active": True,
+                        "is_global": False,
+                    },
+                )
+            else:
+                Functions.update_function_by_id(
+                    function_id,
+                    {
+                        "name": desired_name,
+                        "meta": desired_meta,
+                        "type": "filter",
+                        "is_active": True,
+                        "is_global": False,
+                    },
+                )
+
+        return function_id
+
+    @timed
+    def _ensure_zdr_filter_function_id(self) -> str | None:
+        """Ensure the ZDR (Zero Data Retention) companion filter exists (and is up to date), returning its OWUI function id."""
+        try:
+            from open_webui.models.functions import Functions  # type: ignore
+        except Exception:
+            return None
+
+        desired_source = self._render_zdr_filter_source().strip() + "\n"
+        desired_name = "ZDR (Zero Data Retention)"
+        desired_meta = {
+            "description": (
+                "Enforces Zero Data Retention mode on all OpenRouter requests. "
+                "Only ZDR-compliant providers will be used."
+            ),
+            "toggle": True,
+            "manifest": {
+                "title": "ZDR (Zero Data Retention)",
+                "id": _ZDR_FILTER_PREFERRED_FUNCTION_ID,
+                "version": "0.2.0",
+                "license": "MIT",
+            },
+        }
+
+        @timed
+        def _matches_candidate(content: str) -> bool:
+            if not isinstance(content, str) or not content:
+                return False
+            return _ZDR_FILTER_MARKER in content and "class Filter" in content
+
+        try:
+            filters = Functions.get_functions_by_type("filter", active_only=False)
+        except Exception:
+            return None
+
+        candidates = [f for f in filters if _matches_candidate(getattr(f, "content", ""))]
+        chosen = None
+        if candidates:
+            chosen = sorted(candidates, key=lambda f: int(getattr(f, "updated_at", 0) or 0), reverse=True)[0]
+            if len(candidates) > 1:
+                self.logger.warning(
+                    "Multiple ZDR filter candidates found (%d); using '%s'.",
+                    len(candidates),
+                    getattr(chosen, "id", ""),
+                )
+
+        if chosen is None:
+            if not getattr(self.valves, "AUTO_INSTALL_ZDR_FILTER", False):
+                return None
+
+            candidate_id = _ZDR_FILTER_PREFERRED_FUNCTION_ID
+            suffix = 0
+            while True:
+                existing = None
+                try:
+                    existing = Functions.get_function_by_id(candidate_id)
+                except Exception:
+                    existing = None
+                if existing is None:
+                    break
+                suffix += 1
+                candidate_id = f"{_ZDR_FILTER_PREFERRED_FUNCTION_ID}_{suffix}"
+                if suffix > 50:
+                    return None
+
+            try:
+                from open_webui.models.functions import FunctionForm, FunctionMeta  # type: ignore
+            except Exception:
+                return None
+
+            meta_obj = FunctionMeta(**desired_meta)
+            form = FunctionForm(
+                id=candidate_id,
+                name=desired_name,
+                content=desired_source,
+                meta=meta_obj,
+            )
+            created = Functions.insert_new_function("", "filter", form)
+            if not created:
+                return None
+            Functions.update_function_by_id(
+                candidate_id,
+                {
+                    "is_active": True,
+                    "is_global": False,
+                    "name": desired_name,
+                    "meta": desired_meta,
+                },
+            )
+            self.logger.info("Installed ZDR filter: %s", candidate_id)
+            return candidate_id
+
+        function_id = str(getattr(chosen, "id", "") or "").strip()
+        if not function_id:
+            return None
+
+        if getattr(self.valves, "AUTO_INSTALL_ZDR_FILTER", False):
+            existing_content = (getattr(chosen, "content", "") or "").strip() + "\n"
+            if existing_content != desired_source:
+                self.logger.info("Updating ZDR filter: %s", function_id)
                 Functions.update_function_by_id(
                     function_id,
                     {
@@ -2538,6 +2749,11 @@ class Filter:
                 await run_in_threadpool(self._ensure_direct_uploads_filter_function_id)
             except Exception as exc:
                 self.logger.debug("AUTO_INSTALL_DIRECT_UPLOADS_FILTER failed: %s", exc)
+        if self.valves.AUTO_INSTALL_ZDR_FILTER:
+            try:
+                await run_in_threadpool(self._ensure_zdr_filter_function_id)
+            except Exception as exc:
+                self.logger.debug("AUTO_INSTALL_ZDR_FILTER failed: %s", exc)
 
         selected_models = self._select_models(self.valves.MODEL_ID, available_models)
         selected_models = self._apply_model_filters(selected_models, self.valves)

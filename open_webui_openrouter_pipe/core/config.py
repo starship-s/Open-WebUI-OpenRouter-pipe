@@ -49,6 +49,9 @@ _ORS_FILTER_PREFERRED_FUNCTION_ID = "openrouter_search"
 _DIRECT_UPLOADS_FILTER_MARKER = "openrouter_pipe:direct_uploads_filter:v1"
 _DIRECT_UPLOADS_FILTER_PREFERRED_FUNCTION_ID = "openrouter_direct_uploads"
 
+_ZDR_FILTER_MARKER = "openrouter_pipe:zdr_filter:v1"
+_ZDR_FILTER_PREFERRED_FUNCTION_ID = "openrouter_zdr_filter"
+
 _PROVIDER_ROUTING_FILTER_MARKER_PREFIX = "openrouter_pipe:provider_routing:"
 _PROVIDER_ROUTING_FILTER_MARKER_VERSION = "v1"
 _PROVIDER_ROUTING_FILTER_ID_PREFIX = "openrouter_provider_"
@@ -1492,6 +1495,13 @@ class Valves(BaseModel):
         description=(
             "When enabled, automatically installs/updates the companion OpenRouter Direct Uploads filter function in Open WebUI. "
             "This is required for AUTO_ATTACH_DIRECT_UPLOADS_FILTER when the filter hasn't been installed manually."
+        ),
+    )
+    AUTO_INSTALL_ZDR_FILTER: bool = Field(
+        default=True,
+        description=(
+            "When enabled, automatically installs/updates the companion ZDR (Zero Data Retention) filter function in Open WebUI. "
+            "The filter enforces provider.zdr=true on all requests when enabled."
         ),
     )
 

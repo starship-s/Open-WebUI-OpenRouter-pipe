@@ -173,6 +173,27 @@ This will:
 2. Set `MODEL_ICON_OVERRIDES` to your JSON configuration
 3. Refresh the model list
 
+### 0005-add-zdr-auto-install.patch
+
+Adds the `AUTO_INSTALL_ZDR_FILTER` valve to automatically install/update the ZDR filter.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/core/config.py` - Adds constants and `AUTO_INSTALL_ZDR_FILTER` valve
+  - `open_webui_openrouter_pipe/pipe.py` - Adds filter render method, ensure method, and auto-install logic
+
+**How it works:**
+- When the pipe loads models, it checks if the ZDR filter exists
+- If not found, it creates the filter automatically
+- If found, it updates the filter code to the latest version
+- The filter appears in **Admin → Functions** as "ZDR (Zero Data Retention)"
+- Users can toggle it on/off per chat in **Settings → Integrations**
+
+**Configuration:**
+1. By default, `AUTO_INSTALL_ZDR_FILTER` is enabled (True)
+2. To disable: Go to **Admin → Functions → [OpenRouter Pipe] → Valves** and set to `False`
+3. Once installed, the filter can be toggled on/off per chat without reinstalling
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:
@@ -188,21 +209,35 @@ The ZDR feature has two components:
 
 ## Installing the ZDR Filter in Open WebUI
 
-### Option 1: Manual Installation
+### Option 1: Automatic (Recommended - Fork Only)
+
+**If you installed the fork's bundled pipe** (from the release URL at the top), the ZDR filter is automatically installed!
+
+- The filter appears in **Admin → Functions** as "ZDR (Zero Data Retention)"
+- Toggle it on/off per chat in **Settings → Integrations**
+- It's kept up-to-date automatically with the pipe
+- No manual installation needed
+
+This is controlled by the `AUTO_INSTALL_ZDR_FILTER` valve (enabled by default).
+
+### Option 2: Manual Installation (Upstream or Manual Install)
+
+If you're using the upstream pipe or want to manually install the filter:
 
 1. Copy the contents of `filters/openrouter_zdr_filter.py`
 2. In Open WebUI, go to **Admin → Functions → Add Function**
 3. Paste the filter code and save
 4. Enable the filter globally or per-model
 
-### Option 2: Enable on All Models by Default
+### Option 3: Import from URL (Upstream or Manual Install)
 
-To have the ZDR filter enabled on all models automatically:
+```
+https://raw.githubusercontent.com/starship-s/Open-WebUI-OpenRouter-pipe/main/filters/openrouter_zdr_filter.py
+```
 
-1. Install the filter as above
-2. In **Admin → Functions**, find the ZDR filter
-3. Click the settings and enable **"Enable for all models"** (if available)
-4. Or manually attach it to each model you want to protect
+1. In Open WebUI, go to **Admin → Functions → Add Function → Import from URL**
+2. Paste the URL above
+3. Save and enable
 
 ## Enabling HIDE_MODELS_WITHOUT_ZDR
 
