@@ -122,6 +122,9 @@ class ModelCatalogManager:
             or valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER
             or valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER
             or valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER
+            or valves.AUTO_ATTACH_ZDR_FILTER
+            or valves.AUTO_INSTALL_ZDR_FILTER
+            or valves.AUTO_DEFAULT_ZDR_FILTER
             or provider_routing_enabled
         ):
             return
@@ -140,6 +143,9 @@ class ModelCatalogManager:
             bool(valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER),
             bool(valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER),
             bool(valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER),
+            bool(valves.AUTO_ATTACH_ZDR_FILTER),
+            bool(valves.AUTO_INSTALL_ZDR_FILTER),
+            bool(valves.AUTO_DEFAULT_ZDR_FILTER),
             admin_routing_models,
             user_routing_models,
         )
@@ -499,6 +505,9 @@ class ModelCatalogManager:
             or valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER
             or valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER
             or valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER
+            or valves.AUTO_ATTACH_ZDR_FILTER
+            or valves.AUTO_INSTALL_ZDR_FILTER
+            or valves.AUTO_DEFAULT_ZDR_FILTER
             or provider_routing_enabled
         ):
             return
@@ -643,6 +652,20 @@ class ModelCatalogManager:
                     self.logger.debug("OpenRouter Direct Uploads filter ensure failed: %s", exc)
                     direct_uploads_filter_function_id = None
 
+            zdr_filter_function_id: str | None = None
+            if (
+                valves.AUTO_ATTACH_ZDR_FILTER
+                or valves.AUTO_INSTALL_ZDR_FILTER
+                or valves.AUTO_DEFAULT_ZDR_FILTER
+            ):
+                try:
+                    zdr_filter_function_id = await run_in_threadpool(
+                        self._pipe._ensure_zdr_filter_function_id
+                    )
+                except Exception as exc:
+                    self.logger.debug("ZDR filter ensure failed: %s", exc)
+                    zdr_filter_function_id = None
+
             if valves.AUTO_ATTACH_ORS_FILTER:
                 if not ors_filter_function_id:
                     self.logger.warning(
@@ -686,6 +709,27 @@ class ModelCatalogManager:
                     self.logger.info(
                         "Auto-attaching OpenRouter Direct Uploads filter '%s' to %d/%d model(s) that support direct uploads.",
                         direct_uploads_filter_function_id,
+                        supported_models,
+                        len(models),
+                    )
+
+            if valves.AUTO_ATTACH_ZDR_FILTER or valves.AUTO_DEFAULT_ZDR_FILTER:
+                if not zdr_filter_function_id:
+                    self.logger.warning(
+                        "AUTO_ATTACH_ZDR_FILTER/AUTO_DEFAULT_ZDR_FILTER is enabled but the ZDR filter is not installed. "
+                        "Enable AUTO_INSTALL_ZDR_FILTER (or install the filter manually) to show the ZDR toggle in the UI."
+                    )
+                else:
+                    supported_models = 0
+                    for model in models:
+                        original_id = model.get("original_id")
+                        if isinstance(original_id, str) and original_id:
+                            zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                            if zdr_providers:
+                                supported_models += 1
+                    self.logger.info(
+                        "Auto-attaching ZDR filter '%s' to %d/%d model(s) that have ZDR providers.",
+                        zdr_filter_function_id,
                         supported_models,
                         len(models),
                     )
@@ -804,6 +848,22 @@ class ModelCatalogManager:
                     direct_uploads_filter_function_id and valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER
                 )
 
+                # Check ZDR support for this model
+                zdr_supported = False
+                auto_attach_or_default_zdr = bool(
+                    zdr_filter_function_id
+                    and (
+                        valves.AUTO_ATTACH_ZDR_FILTER
+                        or valves.AUTO_DEFAULT_ZDR_FILTER
+                    )
+                )
+                if auto_attach_or_default_zdr:
+                    original_id = model.get("original_id")
+                    if isinstance(original_id, str) and original_id:
+                        zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                        if zdr_providers:
+                            zdr_supported = True
+
                 # Look up provider routing filter ID for this model
                 # NOTE: Use original_id (e.g., "openai/gpt-4o") not openrouter_id (sanitized "openai.gpt-4o")
                 # because the filter map keys come from valve input which uses original OpenRouter format
@@ -826,6 +886,7 @@ class ModelCatalogManager:
                     and not auto_attach_or_default
                     and not pipe_capabilities
                     and not auto_attach_direct_uploads
+                    and not auto_attach_or_default_zdr
                     and not pr_filter_id
                 ):
                     return
@@ -847,6 +908,10 @@ class ModelCatalogManager:
                             direct_uploads_filter_function_id=direct_uploads_filter_function_id,
                             direct_uploads_filter_supported=native_supported,
                             auto_attach_direct_uploads_filter=auto_attach_direct_uploads,
+                            zdr_filter_function_id=zdr_filter_function_id,
+                            zdr_filter_supported=zdr_supported,
+                            auto_attach_zdr_filter=auto_attach_or_default_zdr,
+                            auto_default_zdr_filter=valves.AUTO_DEFAULT_ZDR_FILTER,
                             provider_routing_filter_id=pr_filter_id,
                             openrouter_pipe_capabilities=pipe_capabilities,
                             description=description,
@@ -881,6 +946,10 @@ class ModelCatalogManager:
         direct_uploads_filter_function_id: str | None = None,
         direct_uploads_filter_supported: bool = False,
         auto_attach_direct_uploads_filter: bool = False,
+        zdr_filter_function_id: str | None = None,
+        zdr_filter_supported: bool = False,
+        auto_attach_zdr_filter: bool = False,
+        auto_default_zdr_filter: bool = False,
         provider_routing_filter_id: str | None = None,
         openrouter_pipe_capabilities: dict[str, bool] | None = None,
         description: str | None = None,
@@ -904,6 +973,8 @@ class ModelCatalogManager:
         disable_openrouter_search_auto_attach = False
         disable_openrouter_search_default_on = False
         disable_direct_uploads_auto_attach = False
+        disable_zdr_auto_attach = False
+        disable_zdr_default_on = False
         disable_description_updates = False
 
         if existing is not None:
@@ -917,6 +988,8 @@ class ModelCatalogManager:
             disable_openrouter_search_auto_attach = _get_disable_param(params, "disable_openrouter_search_auto_attach")
             disable_openrouter_search_default_on = _get_disable_param(params, "disable_openrouter_search_default_on")
             disable_direct_uploads_auto_attach = _get_disable_param(params, "disable_direct_uploads_auto_attach")
+            disable_zdr_auto_attach = _get_disable_param(params, "disable_zdr_auto_attach")
+            disable_zdr_default_on = _get_disable_param(params, "disable_zdr_default_on")
             disable_description_updates = _get_disable_param(params, "disable_description_updates")
 
         if disable_model_metadata_sync:
@@ -932,6 +1005,10 @@ class ModelCatalogManager:
             auto_default_filter = False
         if disable_direct_uploads_auto_attach:
             auto_attach_direct_uploads_filter = False
+        if disable_zdr_auto_attach:
+            auto_attach_zdr_filter = False
+        if disable_zdr_default_on:
+            auto_default_zdr_filter = False
         if disable_description_updates:
             update_descriptions = False
 
@@ -1022,6 +1099,79 @@ class ModelCatalogManager:
             meta_dict["filterIds"] = _dedupe_preserve_order(normalized)
             pipe_meta = _ensure_pipe_meta(meta_dict)
             pipe_meta["direct_uploads_filter_id"] = direct_uploads_filter_function_id
+            meta_dict["openrouter_pipe"] = pipe_meta
+            return True
+
+        @timed
+        def _apply_zdr_filter_ids(meta_dict: dict) -> bool:
+            if not auto_attach_zdr_filter or not zdr_filter_function_id:
+                return False
+            normalized = _normalize_id_list(meta_dict, "filterIds")
+            pipe_meta = meta_dict.get("openrouter_pipe")
+            previous_id = None
+            if isinstance(pipe_meta, dict):
+                prev = pipe_meta.get("zdr_filter_id")
+                if isinstance(prev, str) and prev and prev != zdr_filter_function_id:
+                    previous_id = prev
+            had = set(normalized)
+            wanted = set(had)
+            if zdr_filter_supported:
+                wanted.add(zdr_filter_function_id)
+            else:
+                wanted.discard(zdr_filter_function_id)
+            if previous_id:
+                wanted.discard(previous_id)
+            if wanted == had:
+                return False
+            # Preserve order as much as possible; append new id at the end.
+            if zdr_filter_supported and zdr_filter_function_id not in normalized:
+                normalized.append(zdr_filter_function_id)
+            normalized = [fid for fid in normalized if fid in wanted]
+            meta_dict["filterIds"] = _dedupe_preserve_order(normalized)
+            pipe_meta = _ensure_pipe_meta(meta_dict)
+            pipe_meta["zdr_filter_id"] = zdr_filter_function_id
+            meta_dict["openrouter_pipe"] = pipe_meta
+            return True
+
+        @timed
+        def _apply_default_zdr_filter_ids(meta_dict: dict) -> bool:
+            if not auto_default_zdr_filter or not zdr_filter_function_id or not zdr_filter_supported:
+                return False
+
+            # Never set a default filter unless the filter is actually attached
+            filter_ids = _normalize_id_list(meta_dict, "filterIds")
+            if zdr_filter_function_id not in filter_ids:
+                return False
+
+            pipe_meta = _ensure_pipe_meta(meta_dict)
+            seeded_key = "zdr_default_seeded"
+            previous_id = pipe_meta.get("zdr_filter_id")
+            previous_id_str = previous_id if isinstance(previous_id, str) else ""
+
+            default_ids = _normalize_id_list(meta_dict, "defaultFilterIds")
+            changed = False
+
+            # If the filter id changed (rare), migrate defaults while preserving operator intent
+            if previous_id_str and previous_id_str != zdr_filter_function_id and previous_id_str in default_ids:
+                default_ids = [zdr_filter_function_id if fid == previous_id_str else fid for fid in default_ids]
+                changed = True
+
+            seeded = bool(pipe_meta.get(seeded_key, False))
+            if zdr_filter_function_id in default_ids:
+                if not seeded:
+                    pipe_meta[seeded_key] = True
+                    changed = True
+            else:
+                if not seeded:
+                    default_ids.append(zdr_filter_function_id)
+                    pipe_meta[seeded_key] = True
+                    changed = True
+
+            if not changed:
+                return False
+
+            meta_dict["defaultFilterIds"] = _dedupe_preserve_order(default_ids)
+            pipe_meta["zdr_filter_id"] = zdr_filter_function_id
             meta_dict["openrouter_pipe"] = pipe_meta
             return True
 
@@ -1164,6 +1314,12 @@ class ModelCatalogManager:
             if _apply_direct_uploads_filter_ids(meta_dict):
                 meta_updated = True
 
+            if _apply_zdr_filter_ids(meta_dict):
+                meta_updated = True
+
+            if _apply_default_zdr_filter_ids(meta_dict):
+                meta_updated = True
+
             if _apply_provider_routing_filter_ids(meta_dict):
                 meta_updated = True
                 self.logger.debug(
@@ -1207,6 +1363,8 @@ class ModelCatalogManager:
             _apply_filter_ids(meta_dict)
             _apply_default_filter_ids(meta_dict)
             _apply_direct_uploads_filter_ids(meta_dict)
+            _apply_zdr_filter_ids(meta_dict)
+            _apply_default_zdr_filter_ids(meta_dict)
             if _apply_provider_routing_filter_ids(meta_dict):
                 self.logger.debug(
                     "Attached provider routing filter '%s' to new model '%s'",

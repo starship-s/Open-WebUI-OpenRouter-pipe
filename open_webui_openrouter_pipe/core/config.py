@@ -1504,6 +1504,20 @@ class Valves(BaseModel):
             "The filter enforces provider.zdr=true on all requests when enabled."
         ),
     )
+    AUTO_ATTACH_ZDR_FILTER: bool = Field(
+        default=True,
+        description=(
+            "When enabled, automatically attaches the ZDR filter to models that have ZDR-compliant providers available. "
+            "This makes the ZDR toggle appear in the Integrations menu for supported models."
+        ),
+    )
+    AUTO_DEFAULT_ZDR_FILTER: bool = Field(
+        default=True,
+        description=(
+            "When enabled, automatically marks ZDR as a Default Filter on models that have ZDR providers. "
+            "This enables ZDR by default while still allowing users to turn it off per chat."
+        ),
+    )
 
     # Provider Routing Filters
     ADMIN_PROVIDER_ROUTING_MODELS: str = Field(

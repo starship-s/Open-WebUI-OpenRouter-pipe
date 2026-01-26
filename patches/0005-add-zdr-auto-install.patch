@@ -1,16 +1,20 @@
 From: starship-s <starship-s@users.noreply.github.com>
-Subject: [PATCH] Add AUTO_INSTALL_ZDR_FILTER valve for automatic filter installation
+Subject: [PATCH] Add ZDR filter auto-install and per-model attachment
 
-This patch adds the ability to automatically install/update the ZDR filter
-when the pipe loads, similar to how OpenRouter Search and Direct Uploads filters
-work.
+This patch adds automatic installation, attachment, and default-on behavior
+for the ZDR filter, similar to how OpenRouter Search filter works.
 
-When AUTO_INSTALL_ZDR_FILTER is enabled (default: True), the pipe will:
-- Automatically create the ZDR filter function in Open WebUI on first load
-- Keep it updated with the latest version on subsequent loads
-- Make it available as a toggle in the Integrations menu
+Features:
+- AUTO_INSTALL_ZDR_FILTER: Automatically creates/updates the ZDR filter function
+- AUTO_ATTACH_ZDR_FILTER: Attaches ZDR filter to models with ZDR providers
+- AUTO_DEFAULT_ZDR_FILTER: Enables ZDR by default on supported models
 
-This eliminates the need to manually install the filter from the GitHub URL.
+When all three valves are enabled (default: True), the pipe will:
+- Create the ZDR filter function in Open WebUI on first load
+- Attach it to models that have ZDR-compliant providers available
+- Enable ZDR by default while allowing users to toggle it off per chat
+
+This eliminates the need to manually install or configure the filter.
 
 To apply: git apply patches/0005-add-zdr-auto-install.patch
 To revert: git apply -R patches/0005-add-zdr-auto-install.patch
