@@ -217,6 +217,23 @@ class ModelCatalogManager:
             icon_url: str | None = None
             provider_hint_url: str | None = None
 
+            # Check icon overrides FIRST (highest priority)
+            if icon_overrides:
+                slug_lower = slug.lower()
+                # Try full slug match first (e.g., "openai/gpt-4o")
+                if slug_lower in icon_overrides:
+                    icon_url = icon_overrides[slug_lower]
+                else:
+                    # Try author match (first part of slug, e.g., "openai")
+                    author = slug_lower.split("/", 1)[0] if "/" in slug_lower else slug_lower
+                    if author in icon_overrides:
+                        icon_url = icon_overrides[author]
+
+            # If override found, skip other sources
+            if icon_url:
+                icon_mapping[slug] = icon_url
+                continue
+
             endpoint = item.get("endpoint")
             if isinstance(endpoint, dict):
                 provider_info = endpoint.get("provider_info")
@@ -267,18 +284,6 @@ class ModelCatalogManager:
                 favicon = _favicon_url(provider_hint_url)
                 if favicon:
                     icon_url = favicon
-
-            # Fallback to user-configured icon overrides
-            if not icon_url and icon_overrides:
-                slug_lower = slug.lower()
-                # Try full slug match first (e.g., "openai/gpt-4o")
-                if slug_lower in icon_overrides:
-                    icon_url = icon_overrides[slug_lower]
-                else:
-                    # Try author match (first part of slug, e.g., "openai")
-                    author = slug_lower.split("/", 1)[0] if "/" in slug_lower else slug_lower
-                    if author in icon_overrides:
-                        icon_url = icon_overrides[author]
 
             if not icon_url:
                 continue
