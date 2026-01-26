@@ -498,6 +498,12 @@ class RequestOrchestrator:
                     responses_body.provider = merged_provider
                     self.logger.debug("Injected provider routing from filter: %s", filter_provider)
 
+        if __task__ is None and isinstance(responses_body.provider, dict):
+            responses_body.provider = self._pipe._apply_zdr_provider_exclusions(
+                responses_body.provider,
+                valves=valves,
+            )
+
         if valves.USE_MODEL_MAX_OUTPUT_TOKENS:
             if responses_body.max_output_tokens is None:
                 default_max = ModelFamily.max_completion_tokens(responses_body.model)

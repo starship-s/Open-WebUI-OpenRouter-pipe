@@ -20,6 +20,8 @@ To also **hide** models that don't have ZDR providers from the model list, enabl
 2. Set `HIDE_MODELS_WITHOUT_ZDR` to `True`
 3. Refresh the model list
 
+To **exclude specific providers** while ZDR is enabled, set `ZDR_EXCLUDED_PROVIDERS` to a comma-separated list (e.g., `amazon-bedrock, novita/fp8`).
+
 ## OpenRouter Search toggle
 
 - `openrouter_search_toggle.py` is the companion *toggleable filter* used to enable OpenRouter-native web search.

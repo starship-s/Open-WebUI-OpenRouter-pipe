@@ -692,21 +692,35 @@ class OpenRouterModelRegistry:
 
     @classmethod
     @timed
-    def zdr_providers_for(cls, model_id: str) -> list[str]:
+    def zdr_providers_for(
+        cls,
+        model_id: str,
+        *,
+        exclude: set[str] | None = None,
+    ) -> list[str]:
         """Return the list of ZDR provider tags for a model, if any."""
         if not model_id:
             return []
         normalized = ModelFamily.base_model(sanitize_model_id(model_id))
+        exclude_set = {e.strip().lower() for e in (exclude or set()) if isinstance(e, str) and e.strip()}
+
+        def _filter(items: list[str]) -> list[str]:
+            if not exclude_set:
+                return list(items)
+            return [p for p in items if isinstance(p, str) and p.strip().lower() not in exclude_set]
+
         providers = cls._zdr_providers.get(normalized) or []
-        if providers:
-            return list(providers)
+        filtered = _filter(providers)
+        if filtered:
+            return filtered
 
         # Fallback: drop variant/preset suffix (e.g., ":free") and retry.
         if ":" in normalized:
             base = normalized.split(":", 1)[0]
             providers = cls._zdr_providers.get(base) or []
-            if providers:
-                return list(providers)
+            filtered = _filter(providers)
+            if filtered:
+                return filtered
 
         return []
 

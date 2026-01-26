@@ -799,6 +799,14 @@ class Valves(BaseModel):
             "endpoint entry. Only models present in `/endpoints/zdr` remain visible/usable."
         ),
     )
+    ZDR_EXCLUDED_PROVIDERS: str = Field(
+        default="",
+        description=(
+            "Comma-separated provider slugs to ignore when ZDR is enabled. "
+            "These providers are excluded from ZDR model matching and added to "
+            "`provider.ignore` when ZDR is active."
+        ),
+    )
     VARIANT_MODELS: str = Field(
         default="",
         title="Variant models",

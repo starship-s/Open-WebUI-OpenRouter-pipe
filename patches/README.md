@@ -214,6 +214,27 @@ Fixes ZDR endpoint matching when `/endpoints/zdr` only provides label-based name
 - Falls back to base ids for variants (e.g., `:free`)
   - Ensures ZDR provider lookups succeed for model variants
 
+### 0007-add-zdr-filter-icon-and-provider-exclusions.patch
+
+Adds a shield icon to the ZDR filter toggle UI and introduces the
+`ZDR_EXCLUDED_PROVIDERS` valve to exclude specific providers from ZDR routing.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `filters/openrouter_zdr_filter.py` - Adds a shield icon to the toggle UI
+  - `open_webui_openrouter_pipe/pipe.py` - Updates embedded ZDR filter source
+  - `open_webui_openrouter_pipe/core/config.py` - Adds `ZDR_EXCLUDED_PROVIDERS`
+  - `open_webui_openrouter_pipe/models/registry.py` - Filters ZDR providers by exclusions
+  - `open_webui_openrouter_pipe/models/catalog_manager.py` - Uses exclusions for attach/default
+  - `open_webui_openrouter_pipe/requests/orchestrator.py` - Applies provider.ignore
+  - `docs/valves_and_configuration_atlas.md` - Documents the new valve
+
+**Key changes:**
+- Adds a shield icon (data URI) to the ZDR filter toggle UI
+- Adds `ZDR_EXCLUDED_PROVIDERS` (CSV of provider slugs)
+- Excludes those providers from ZDR model matching and auto-attach
+- Applies `provider.ignore` when ZDR is active
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:
@@ -222,10 +243,12 @@ The ZDR feature has two components:
 |-----------|---------|----------|
 | **ZDR Filter** | Enforces `provider.zdr=true` on all requests | `filters/openrouter_zdr_filter.py` |
 | **HIDE_MODELS_WITHOUT_ZDR** | Hides models without ZDR providers from the model list | Pipe valve (in Admin → Functions → Valves) |
+| **ZDR_EXCLUDED_PROVIDERS** | Excludes provider slugs while ZDR is enabled | Pipe valve (in Admin → Functions → Valves) |
 
 **Recommended setup for maximum ZDR compliance:**
 1. Install the ZDR filter and enable it globally
 2. Enable `HIDE_MODELS_WITHOUT_ZDR` in the pipe valves
+3. Optionally set `ZDR_EXCLUDED_PROVIDERS` to skip specific providers
 
 ## Installing the ZDR Filter in Open WebUI
 

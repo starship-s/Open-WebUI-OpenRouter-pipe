@@ -107,6 +107,7 @@ class ModelCatalogManager:
             pipe_identifier: The pipe's identifier (e.g., "openrouter")
         """
         valves = self._pipe.valves
+        excluded_zdr_providers = self._pipe._zdr_excluded_provider_set(valves)
 
         # Check if provider routing is enabled (either ADMIN or USER lists are non-empty)
         admin_routing_models = (getattr(valves, "ADMIN_PROVIDER_ROUTING_MODELS", "") or "").strip()
@@ -729,7 +730,10 @@ class ModelCatalogManager:
                     for model in models:
                         original_id = model.get("original_id")
                         if isinstance(original_id, str) and original_id:
-                            zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                            zdr_providers = OpenRouterModelRegistry.zdr_providers_for(
+                                original_id,
+                                exclude=excluded_zdr_providers,
+                            )
                             if zdr_providers:
                                 supported_models += 1
                     self.logger.info(
@@ -865,7 +869,10 @@ class ModelCatalogManager:
                 if auto_attach_or_default_zdr:
                     original_id = model.get("original_id")
                     if isinstance(original_id, str) and original_id:
-                        zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                        zdr_providers = OpenRouterModelRegistry.zdr_providers_for(
+                            original_id,
+                            exclude=excluded_zdr_providers,
+                        )
                         if zdr_providers:
                             zdr_supported = True
 

@@ -1,0 +1,28 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add ZDR filter icon and provider exclusions
+
+This patch adds a shield icon to the ZDR filter toggle UI and introduces a
+valve to exclude specific providers from ZDR routing/matching.
+
+Highlights:
+- Adds a shield icon (data URI) to the ZDR filter toggle in Open WebUI.
+- Adds ZDR_EXCLUDED_PROVIDERS valve (comma-separated provider slugs).
+- Excludes listed providers from ZDR model matching and auto-attach.
+- Applies provider.ignore when ZDR is active to skip excluded providers.
+
+To apply: git apply patches/0007-add-zdr-filter-icon-and-provider-exclusions.patch
+To revert: git apply -R patches/0007-add-zdr-filter-icon-and-provider-exclusions.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- filters/openrouter_zdr_filter.py
+- open_webui_openrouter_pipe/pipe.py
+- open_webui_openrouter_pipe/core/config.py
+- open_webui_openrouter_pipe/models/registry.py
+- open_webui_openrouter_pipe/models/catalog_manager.py
+- open_webui_openrouter_pipe/requests/orchestrator.py
+- docs/valves_and_configuration_atlas.md
+

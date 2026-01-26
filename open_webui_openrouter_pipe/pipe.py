@@ -1122,6 +1122,53 @@ class Filter:
         return set(parts)
 
     @staticmethod
+    def _zdr_excluded_provider_set(valves: "Pipe.Valves") -> set[str]:
+        raw = getattr(valves, "ZDR_EXCLUDED_PROVIDERS", "")
+        return Pipe._csv_set(raw)
+
+    @staticmethod
+    def _apply_zdr_provider_exclusions(
+        provider: dict[str, Any],
+        *,
+        valves: "Pipe.Valves",
+    ) -> dict[str, Any]:
+        exclude = Pipe._zdr_excluded_provider_set(valves)
+        if not exclude or not isinstance(provider, dict):
+            return provider
+        if not provider.get("zdr"):
+            return provider
+
+        existing = provider.get("ignore")
+        ignore_list: list[str] = []
+        if isinstance(existing, str):
+            ignore_list = [existing]
+        elif isinstance(existing, list):
+            ignore_list = [p for p in existing if isinstance(p, str) and p.strip()]
+
+        combined: list[str] = []
+        seen: set[str] = set()
+        for entry in ignore_list:
+            text = entry.strip()
+            if not text:
+                continue
+            lowered = text.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            combined.append(text)
+
+        for entry in sorted(exclude):
+            lowered = entry.strip().lower()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            combined.append(lowered)
+
+        if combined:
+            provider["ignore"] = combined
+        return provider
+
+    @staticmethod
     def _mime_allowed(mime: str, allowlist_csv: str) -> bool:
         mime = (mime or "").strip().lower()
         if not mime:
@@ -1417,7 +1464,7 @@ author: starship-s
 author_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
 id: __FILTER_ID__
 description: Enforces Zero Data Retention mode on all OpenRouter requests. Only ZDR-compliant providers will be used.
-version: 0.2.0
+version: 0.3.0
 license: MIT
 """
 
@@ -1446,6 +1493,9 @@ class Filter:
     This filter enforces ZDR on requests. To also HIDE non-ZDR models from
     the model list, enable the HIDE_MODELS_WITHOUT_ZDR valve on the pipe itself
     (Admin -> Functions -> [OpenRouter Pipe] -> Valves).
+
+    To exclude specific providers while ZDR is enabled, set the
+    ZDR_EXCLUDED_PROVIDERS valve on the pipe (comma-separated provider slugs).
     
     See: https://openrouter.ai/docs/provider-routing
     """
@@ -1458,6 +1508,15 @@ class Filter:
         self.log = logging.getLogger("openrouter.zdr.filter")
         self.log.setLevel(SRC_LOG_LEVELS.get("OPENAI", logging.INFO))
         self.toggle = True
+        # Shield icon for the Integrations toggle UI.
+        self.icon = (
+            "data:image/svg+xml;base64,"
+            "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9"
+            "IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0"
+            "cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1s"
+            "aW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xMiAzbDcgM3Y2YzAgNS0zLjUgOS03"
+            "IDEyLTMuNS0zLTctNy03LTEyVjZsNy0zeiIvPjwvc3ZnPg=="
+        )
 
     def inlet(
         self,
@@ -6679,6 +6738,7 @@ class Filter:
             return []
 
         hide_non_zdr = bool(getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False))
+        excluded_providers = self._zdr_excluded_provider_set(valves)
         free_mode = (getattr(valves, "FREE_MODEL_FILTER", "all") or "all").strip().lower()
         tool_mode = (getattr(valves, "TOOL_CALLING_FILTER", "all") or "all").strip().lower()
         if not hide_non_zdr and free_mode == "all" and tool_mode == "all":
@@ -6692,7 +6752,8 @@ class Filter:
 
             if hide_non_zdr:
                 providers = OpenRouterModelRegistry.zdr_providers_for(
-                    model.get("id") or norm_id
+                    model.get("id") or norm_id,
+                    exclude=excluded_providers,
                 )
                 if not providers:
                     continue
@@ -6844,6 +6905,7 @@ class Filter:
         catalog_norm_ids: set[str],
     ) -> list[str]:
         reasons: list[str] = []
+        excluded_providers = self._zdr_excluded_provider_set(valves)
         if catalog_norm_ids and model_norm_id not in catalog_norm_ids:
             reasons.append("not_in_catalog")
 
@@ -6856,7 +6918,10 @@ class Filter:
             getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False)
             and model_norm_id in catalog_norm_ids
         ):
-            if not OpenRouterModelRegistry.zdr_providers_for(model_norm_id):
+            if not OpenRouterModelRegistry.zdr_providers_for(
+                model_norm_id,
+                exclude=excluded_providers,
+            ):
                 reasons.append("HIDE_MODELS_WITHOUT_ZDR")
 
         free_mode = (getattr(valves, "FREE_MODEL_FILTER", "all") or "all").strip().lower()
