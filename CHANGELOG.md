@@ -1,3 +1,12 @@
+## 2.0.21-zdr (2026-01-26)
+
+### 🚀 Features
+
+- ZDR filter v0.4.0: Automatically fetch ZDR-compliant providers from OpenRouter's `/endpoints/zdr` endpoint
+- ZDR filter now sets `provider.only` with the list of compliant providers for each model
+- Provider lists are cached for 1 hour to minimize API calls
+- Enhanced ZDR enforcement: sets both `provider.zdr=true` and `provider.only=[...]` to ensure only ZDR-compliant providers handle requests
+
 ## 2.0.20-zdr (2026-01-26)
 
 ### 🐛 Bug Fixes

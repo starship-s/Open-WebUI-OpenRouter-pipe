@@ -6,12 +6,25 @@ This folder contains reference Open WebUI filter functions used alongside the Op
 
 ## ZDR (Zero Data Retention) filter
 
-- `openrouter_zdr_filter.py` enforces Zero Data Retention mode on all OpenRouter requests by setting `provider.zdr=true`.
-- When enabled, only ZDR-compliant providers will be used for requests.
+- `openrouter_zdr_filter.py` enforces Zero Data Retention mode on all OpenRouter requests.
+- **New in v0.4.0**: The filter now automatically fetches ZDR-compliant providers from OpenRouter's `/endpoints/zdr` endpoint and sets `provider.only` with the list of compliant providers for each model.
+- Provider lists are cached for 1 hour to minimize API calls.
+- The filter sets both `provider.zdr=true` and `provider.only=[...]` to ensure only ZDR-compliant providers handle your requests.
 - The filter is toggleable — users can disable it per-chat if needed.
-- **Note**: Not all providers support ZDR. Requests may fail if no ZDR-compliant providers are available for a model. Consider enabling `ALLOW_FALLBACKS` in provider routing settings.
+- **Requirements**: The filter requires `aiohttp` and the `OPENROUTER_API_KEY` environment variable to be set.
 
 To install: Copy the contents into Open WebUI Functions (Admin → Functions → Add Function).
+
+### How It Works
+
+When enabled, for each request the filter will:
+1. Extract the model ID from the request
+2. Query the cached ZDR endpoint data (or fetch it if cache is stale)
+3. Look up which providers support ZDR for that specific model
+4. Set `provider.only` to the list of ZDR-compliant providers
+5. Set `provider.zdr=true` for additional enforcement
+
+This ensures that OpenRouter will **only route to providers that support Zero Data Retention** for the requested model.
 
 ### Hiding Non-ZDR Models
 
