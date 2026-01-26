@@ -123,6 +123,7 @@ This fork includes additional features not in upstream:
   - `AUTO_DEFAULT_ZDR_FILTER` - Enables ZDR by default on supported models (default: on)
 - **`HIDE_MODELS_WITHOUT_ZDR`** valve - Hides models without ZDR-compliant providers
 - **`ZDR_EXCLUDED_PROVIDERS`** valve - Excludes provider slugs when ZDR is enabled
+- **`ENFORCE_DATA_COLLECTION_DENY`** valve - Forces `provider.data_collection="deny"` on all requests
 - **`TASK_TITLE_MODEL_ID`** / **`TASK_FOLLOWUP_MODEL_ID`** valves - Override models for background tasks
 - **`MODEL_ICON_OVERRIDES`** valve - Custom model icons via JSON configuration
 

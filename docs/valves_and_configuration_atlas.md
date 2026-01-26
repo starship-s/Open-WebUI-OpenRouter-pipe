@@ -67,6 +67,7 @@ Defaults and valve names are verified against `open_webui_openrouter_pipe/open_w
 | `TOOL_CALLING_FILTER` | `Literal["all","only","exclude"]` | `all` | Filter models based on tool calling support (supported_parameters includes `tools` or `tool_choice`). `all` disables filtering; `only` restricts to tool-capable models; `exclude` hides tool-capable models. |
 | `HIDE_MODELS_WITHOUT_ZDR` | `bool` | `False` | Hide models that lack ZDR-compliant endpoints in `/endpoints/zdr`. |
 | `ZDR_EXCLUDED_PROVIDERS` | `str` | `""` | Comma-separated provider slugs to exclude from ZDR matching and added to `provider.ignore` when ZDR is active. |
+| `ENFORCE_DATA_COLLECTION_DENY` | `bool` | `True` | Force `provider.data_collection="deny"` on every OpenRouter request. |
 | `UPDATE_MODEL_IMAGES` | `bool` | `True` | When enabled, sync OpenRouter model icons into Open WebUI model metadata (`meta.profile_image_url`) as PNG data URLs. Disabling avoids extra outbound fetches and model-metadata writes. |
 | `UPDATE_MODEL_CAPABILITIES` | `bool` | `True` | When enabled, sync Open WebUI model capability checkboxes (`meta.capabilities`) from the OpenRouter catalog (and frontend capability signals like native web search). Disabling avoids model-metadata writes. |
 | `UPDATE_MODEL_DESCRIPTIONS` | `bool` | `True` | When enabled, sync Open WebUI model descriptions (`meta.description`) from the OpenRouter `/models` catalog. Disabling avoids model-metadata writes and preserves operator-managed descriptions. |

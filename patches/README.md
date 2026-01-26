@@ -235,6 +235,36 @@ Adds a shield icon to the ZDR filter toggle UI and introduces the
 - Excludes those providers from ZDR model matching and auto-attach
 - Applies `provider.ignore` when ZDR is active
 
+### 0008-add-data-collection-deny-valve.patch
+
+Adds a global valve to force `provider.data_collection="deny"` on every
+OpenRouter request.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/core/config.py` - Adds `ENFORCE_DATA_COLLECTION_DENY`
+  - `open_webui_openrouter_pipe/requests/orchestrator.py` - Applies provider override
+  - `docs/valves_and_configuration_atlas.md` - Documents the valve
+  - `README.md` - Lists the valve in fork features
+  - `open_webui_openrouter_pipe.py` - Bumps version metadata
+
+**Key changes:**
+- Adds `ENFORCE_DATA_COLLECTION_DENY` (default: on)
+- Forces `provider.data_collection="deny"` for every request
+
+### 0009-fix-zdr-excluded-providers-helper.patch
+
+Fixes the placement of the ZDR excluded providers helper so it is available on
+the Pipe class for model filtering, catalog sync, and request handling.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/pipe.py` - Adds missing Pipe helper methods
+
+**Key changes:**
+- Adds Pipe CSV parsing helper for ZDR exclusions
+- Adds Pipe helpers for excluded providers and provider.ignore merges
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:
