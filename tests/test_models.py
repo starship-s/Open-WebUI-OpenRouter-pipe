@@ -589,6 +589,9 @@ def test_maybe_schedule_model_metadata_sync_no_valves_enabled(pipe_instance) -> 
     pipe.valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER = False
     pipe.valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER = False
     pipe.valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER = False
+    pipe.valves.AUTO_INSTALL_ZDR_FILTER = False
+    pipe.valves.AUTO_ATTACH_ZDR_FILTER = False
+    pipe.valves.AUTO_DEFAULT_ZDR_FILTER = False
 
     pipe._catalog_manager.maybe_schedule_model_metadata_sync(
         [{"id": "test"}],
@@ -615,6 +618,9 @@ def test_maybe_schedule_model_metadata_sync_same_key_no_reschedule(pipe_instance
     pipe = pipe_instance
     pipe._ensure_catalog_manager()
     pipe.valves.UPDATE_MODEL_CAPABILITIES = True
+    pipe.valves.AUTO_INSTALL_ZDR_FILTER = False
+    pipe.valves.AUTO_ATTACH_ZDR_FILTER = False
+    pipe.valves.AUTO_DEFAULT_ZDR_FILTER = False
 
     # Set a sync key that matches what would be generated
     from open_webui_openrouter_pipe.models.registry import OpenRouterModelRegistry
@@ -636,6 +642,9 @@ def test_maybe_schedule_model_metadata_sync_same_key_no_reschedule(pipe_instance
         bool(pipe.valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER),
         bool(pipe.valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER),
         bool(pipe.valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER),
+        bool(pipe.valves.AUTO_ATTACH_ZDR_FILTER),
+        bool(pipe.valves.AUTO_INSTALL_ZDR_FILTER),
+        bool(pipe.valves.AUTO_DEFAULT_ZDR_FILTER),
         admin_routing,
         user_routing,
     )
@@ -684,6 +693,9 @@ async def test_sync_model_metadata_returns_early_no_valves(pipe_instance_async) 
     pipe.valves.AUTO_DEFAULT_OPENROUTER_SEARCH_FILTER = False
     pipe.valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER = False
     pipe.valves.AUTO_INSTALL_DIRECT_UPLOADS_FILTER = False
+    pipe.valves.AUTO_INSTALL_ZDR_FILTER = False
+    pipe.valves.AUTO_ATTACH_ZDR_FILTER = False
+    pipe.valves.AUTO_DEFAULT_ZDR_FILTER = False
 
     # Should return early without error
     await pipe._sync_model_metadata_to_owui([{"id": "test"}], pipe_identifier="test_pipe")
