@@ -4,7 +4,7 @@ author: starship-s
 author_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
 id: openrouter_zdr_filter
 description: Enforces Zero Data Retention mode on all OpenRouter requests. Only ZDR-compliant providers will be used.
-version: 0.2.0
+version: 0.3.0
 license: MIT
 """
 
@@ -33,6 +33,9 @@ class Filter:
     This filter enforces ZDR on requests. To also HIDE non-ZDR models from
     the model list, enable the HIDE_MODELS_WITHOUT_ZDR valve on the pipe itself
     (Admin -> Functions -> [OpenRouter Pipe] -> Valves).
+
+    To exclude specific providers while ZDR is enabled, set the
+    ZDR_EXCLUDED_PROVIDERS valve on the pipe (comma-separated provider slugs).
     
     See: https://openrouter.ai/docs/provider-routing
     """
@@ -45,6 +48,15 @@ class Filter:
         self.log = logging.getLogger("openrouter.zdr.filter")
         self.log.setLevel(SRC_LOG_LEVELS.get("OPENAI", logging.INFO))
         self.toggle = True
+        # Shield icon for the Integrations toggle UI.
+        self.icon = (
+            "data:image/svg+xml;base64,"
+            "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9"
+            "IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJjdXJyZW50Q29sb3IiIHN0"
+            "cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1s"
+            "aW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0xMiAzbDcgM3Y2YzAgNS0zLjUgOS03"
+            "IDEyLTMuNS0zLTctNy03LTEyVjZsNy0zeiIvPjwvc3ZnPg=="
+        )
 
     def inlet(
         self,
