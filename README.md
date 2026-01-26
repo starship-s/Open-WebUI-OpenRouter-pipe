@@ -119,8 +119,9 @@ This fork includes additional features not in upstream:
 
 - **ZDR Filter** - Enforces Zero Data Retention on all requests
   - `AUTO_INSTALL_ZDR_FILTER` - Auto-installs the filter (default: on)
-  - `AUTO_ATTACH_ZDR_FILTER` - Attaches filter to all models (default: on)
-  - `AUTO_DEFAULT_ZDR_FILTER` - Enables ZDR by default on all models (default: on)
+  - `AUTO_ATTACH_ZDR_FILTER` - Attaches filter to models with ZDR providers (default: on)
+  - `AUTO_DEFAULT_ZDR_FILTER` - Enables ZDR by default on supported models (default: on)
+- **`HIDE_MODELS_WITHOUT_ZDR`** valve - Hides models without ZDR-compliant providers
 - **`TASK_TITLE_MODEL_ID`** / **`TASK_FOLLOWUP_MODEL_ID`** valves - Override models for background tasks
 - **`MODEL_ICON_OVERRIDES`** valve - Custom model icons via JSON configuration
 
