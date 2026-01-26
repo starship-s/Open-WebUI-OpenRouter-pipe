@@ -199,6 +199,21 @@ Adds ZDR filter auto-install, per-model attachment, and default-on behavior.
 - `disable_zdr_auto_attach`: Prevents filter attachment
 - `disable_zdr_default_on`: Prevents default-on behavior
 
+### 0006-fix-zdr-slug-matching.patch
+
+Fixes ZDR endpoint matching when `/endpoints/zdr` only provides label-based names
+(`"Provider | author/model"`) and omits structured slug fields.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/models/registry.py` - Improves slug extraction + alias mapping
+
+**Key changes:**
+- Extracts slugs from label strings in ZDR endpoint entries
+- Adds alias mapping using `endpoint.name` and nested `endpoint.model` fields
+- Falls back to base ids for variants (e.g., `:free`)
+  - Ensures ZDR provider lookups succeed for model variants
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:

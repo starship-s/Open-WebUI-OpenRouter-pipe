@@ -469,6 +469,28 @@ class OpenRouterModelRegistry:
             return []
         return [part.strip() for part in value.split(sep) if part and part.strip()]
 
+    @staticmethod
+    def _extract_slug_from_label(value: Any) -> str:
+        """Extract an author/model slug from a label like 'Provider | author/model'."""
+        if not isinstance(value, str):
+            return ""
+        candidate = value.strip()
+        if not candidate:
+            return ""
+
+        parts = OpenRouterModelRegistry._safe_split(candidate, "|")
+        if parts:
+            candidate = parts[-1]
+
+        # Prefer explicit author/model patterns when present.
+        match = re.search(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+)", candidate)
+        if match:
+            return match.group(1)
+
+        if "/" in candidate:
+            return candidate.strip()
+        return ""
+
     @classmethod
     @timed
     def _normalize_zdr_model_slug(cls, value: Any) -> str:
@@ -488,9 +510,9 @@ class OpenRouterModelRegistry:
                 if not candidate:
                     return
                 if split_name:
-                    parts = cls._safe_split(candidate, "|")
-                    if parts:
-                        sink.append(parts[-1])
+                    slug = cls._extract_slug_from_label(candidate)
+                    if slug:
+                        sink.append(slug)
                 sink.append(candidate)
                 return
 
@@ -605,6 +627,10 @@ class OpenRouterModelRegistry:
                             aliases.add(val)
                     endpoint = item.get("endpoint")
                     if isinstance(endpoint, dict):
+                        endpoint_name = endpoint.get("name")
+                        name_slug = cls._extract_slug_from_label(endpoint_name)
+                        if name_slug:
+                            aliases.add(name_slug)
                         for key in (
                             "model",
                             "model_slug",
@@ -616,6 +642,27 @@ class OpenRouterModelRegistry:
                             val = endpoint.get(key)
                             if isinstance(val, str) and val:
                                 aliases.add(val)
+                        endpoint_model = endpoint.get("model")
+                        if isinstance(endpoint_model, dict):
+                            for key in (
+                                "slug",
+                                "permaslug",
+                                "canonical_slug",
+                                "model",
+                                "model_slug",
+                                "model_variant_slug",
+                                "model_variant_permaslug",
+                                "id",
+                                "name",
+                            ):
+                                val = endpoint_model.get(key)
+                                if isinstance(val, str) and val:
+                                    if key == "name":
+                                        nested_slug = cls._extract_slug_from_label(val)
+                                        if nested_slug:
+                                            aliases.add(nested_slug)
+                                    else:
+                                        aliases.add(val)
                     for alias in aliases:
                         alias_norm = ModelFamily.base_model(sanitize_model_id(alias))
                         alias_to_norm.setdefault(alias_norm, canonical_norm)
@@ -651,7 +698,17 @@ class OpenRouterModelRegistry:
             return []
         normalized = ModelFamily.base_model(sanitize_model_id(model_id))
         providers = cls._zdr_providers.get(normalized) or []
-        return list(providers)
+        if providers:
+            return list(providers)
+
+        # Fallback: drop variant/preset suffix (e.g., ":free") and retry.
+        if ":" in normalized:
+            base = normalized.split(":", 1)[0]
+            providers = cls._zdr_providers.get(base) or []
+            if providers:
+                return list(providers)
+
+        return []
 
     # -------------------------------------------------------------------------
     # Feature Derivation
