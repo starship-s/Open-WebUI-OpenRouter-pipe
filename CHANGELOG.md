@@ -1,3 +1,8 @@
+## 2.0.20-zdr (2026-01-26)
+
+### 🐛 Bug Fixes
+
+- Update ZDR filter icon to PNG format for better compatibility
 
 ### 🚀 Features
 
