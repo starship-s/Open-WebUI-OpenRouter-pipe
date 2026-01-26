@@ -1,3 +1,17 @@
+## 2.0.25-zdr (2026-01-26)
+
+### 🚀 Features
+
+- (Add feature changes here)
+
+### 🐛 Bug Fixes
+
+- (Add bug fixes here)
+
+### 📚 Documentation
+
+- (Add documentation updates here)
+
 ## 2.0.24-zdr (2026-01-26)
 
 ### 🚀 Features
