@@ -1,7 +1,7 @@
 # Open WebUI → OpenRouter Pipe
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.6--zdr-blue.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
+[![Version](https://img.shields.io/badge/version-2.0.7--zdr-blue.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
 [![Open WebUI Compatible](https://img.shields.io/badge/Open%20WebUI-0.6.28%2B-green.svg)](https://openwebui.com/)
 [![Fork](https://img.shields.io/badge/fork-starship--s-purple.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
 
