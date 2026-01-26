@@ -349,7 +349,8 @@ class OpenRouterModelRegistry:
         cls._specs = specs
         cls._id_map = id_map
 
-        # Fetch ZDR endpoints and frontend catalog for mapping
+        # Fetch frontend catalog and ZDR endpoints for mapping
+        frontend_data = await cls._fetch_frontend_catalog_for_mapping(session, logger)
         zdr_endpoints = await cls._fetch_zdr_endpoints(
             session,
             base_url=base_url,
@@ -357,7 +358,6 @@ class OpenRouterModelRegistry:
             http_referer=http_referer,
             logger=logger,
         )
-        frontend_data = await cls._fetch_frontend_catalog_for_mapping(session, logger)
         cls._zdr_providers = cls._build_zdr_provider_mapping(
             zdr_endpoints,
             frontend_data,
@@ -408,15 +408,17 @@ class OpenRouterModelRegistry:
     ) -> list[dict[str, Any]]:
         """Fetch ZDR endpoint catalog from OpenRouter."""
         from ..core.config import _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+        from ..requests.debug import _debug_print_error_response
         url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
         headers = {
             "Authorization": f"Bearer {api_key}",
             "X-Title": _OPENROUTER_TITLE,
+            "HTTP-Referer": (http_referer or _OPENROUTER_REFERER),
         }
-        if http_referer:
-            headers["HTTP-Referer"] = http_referer
         try:
             async with session.get(url, headers=headers) as resp:
+                if resp.status >= 400:
+                    await _debug_print_error_response(resp, logger=logger)
                 resp.raise_for_status()
                 payload = await resp.json()
         except Exception as exc:
