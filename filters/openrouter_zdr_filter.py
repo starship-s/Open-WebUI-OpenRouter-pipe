@@ -29,7 +29,7 @@ except ImportError:
 
 OWUI_OPENROUTER_PIPE_MARKER = "openrouter_pipe:zdr_filter:v1"
 _FEATURE_FLAG = "zdr"
-_OPENROUTER_ZDR_ENDPOINT_SUFFIX = "/endpoints/zdr"
+_OPENROUTER_ZDR_ENDPOINT = "https://openrouter.ai/api/v1/endpoints/zdr"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _ZDR_CACHE_SECONDS = 3600  # Cache for 1 hour
 
@@ -94,7 +94,7 @@ class ZDRProviderCache:
             logger.warning("aiohttp not available, cannot fetch ZDR endpoints")
             return
         
-        url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+        url = _OPENROUTER_ZDR_ENDPOINT
         headers = {
             "Authorization": f"Bearer {api_key}",
         }

@@ -1,3 +1,9 @@
+## 2.0.22-zdr (2026-01-26)
+
+### 🐛 Bug Fixes
+
+- ZDR filter: Refactor endpoint URL construction to use full URL instead of suffix
+
 ## 2.0.21-zdr (2026-01-26)
 
 ### 🚀 Features
