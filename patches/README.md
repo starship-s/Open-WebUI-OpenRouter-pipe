@@ -29,6 +29,7 @@ https://github.com/starship-s/Open-WebUI-OpenRouter-pipe/releases/download/dev/o
 
 This will install the fork version which includes:
 - ZDR (Zero Data Retention) enforcement filter
+- `HIDE_MODELS_WITHOUT_ZDR` valve to hide non-ZDR models
 - `TASK_TITLE_MODEL_ID` and `TASK_FOLLOWUP_MODEL_ID` for task model overrides
 - `MODEL_ICON_OVERRIDES` for custom model icons
 
@@ -97,6 +98,16 @@ Adds the ZDR (Zero Data Retention) filter that enforces `provider.zdr=true` on a
 
 - **Type:** New file (no merge conflicts expected)
 - **Files added:** `filters/openrouter_zdr_filter.py`
+
+### 0002-add-zdr-model-hiding.patch
+
+Adds the `HIDE_MODELS_WITHOUT_ZDR` valve to the pipe, which hides models that don't have ZDR-compliant providers.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/core/config.py` - Adds valve and constant
+  - `open_webui_openrouter_pipe/models/registry.py` - Adds ZDR endpoint fetching
+  - `open_webui_openrouter_pipe/pipe.py` - Adds ZDR filtering to model list
 
 ### 0003-add-task-model-overrides.patch
 
@@ -175,29 +186,46 @@ Adds ZDR filter auto-install, per-model attachment, and default-on behavior.
 | Valve | Default | Description |
 |-------|---------|-------------|
 | `AUTO_INSTALL_ZDR_FILTER` | True | Automatically creates/updates the ZDR filter function |
-| `AUTO_ATTACH_ZDR_FILTER` | True | Attaches ZDR filter to all models |
-| `AUTO_DEFAULT_ZDR_FILTER` | True | Enables ZDR by default on all models |
+| `AUTO_ATTACH_ZDR_FILTER` | True | Attaches ZDR filter to models with ZDR-compliant providers |
+| `AUTO_DEFAULT_ZDR_FILTER` | True | Enables ZDR by default on attached models |
 
 **How it works:**
 - `AUTO_INSTALL_ZDR_FILTER`: Creates the ZDR filter function in Open WebUI on first load
-- `AUTO_ATTACH_ZDR_FILTER`: Adds the filter to `filterIds` for all models (making the toggle appear in Integrations)
-- `AUTO_DEFAULT_ZDR_FILTER`: Adds the filter to `defaultFilterIds` for all models (enabling ZDR by default)
+- `AUTO_ATTACH_ZDR_FILTER`: For each model with ZDR providers, adds the filter to its `filterIds` (making the toggle appear in Integrations)
+- `AUTO_DEFAULT_ZDR_FILTER`: For attached models, adds the filter to `defaultFilterIds` (enabling ZDR by default)
 - Users can still toggle ZDR off per chat in **Settings → Integrations**
 
 **Per-model control:** Operators can disable auto-attachment on specific models via model params:
 - `disable_zdr_auto_attach`: Prevents filter attachment
 - `disable_zdr_default_on`: Prevents default-on behavior
 
+### 0006-fix-zdr-slug-matching.patch
+
+Fixes ZDR endpoint matching when `/endpoints/zdr` only provides label-based names
+(`"Provider | author/model"`) and omits structured slug fields.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/models/registry.py` - Improves slug extraction + alias mapping
+
+**Key changes:**
+- Extracts slugs from label strings in ZDR endpoint entries
+- Adds alias mapping using `endpoint.name` and nested `endpoint.model` fields
+- Falls back to base ids for variants (e.g., `:free`)
+  - Ensures ZDR provider lookups succeed for model variants
+
 ## ZDR Feature Summary
 
-The ZDR feature includes the following component:
+The ZDR feature has two components:
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
 | **ZDR Filter** | Enforces `provider.zdr=true` on all requests | `filters/openrouter_zdr_filter.py` |
+| **HIDE_MODELS_WITHOUT_ZDR** | Hides models without ZDR providers from the model list | Pipe valve (in Admin → Functions → Valves) |
 
 **Recommended setup for maximum ZDR compliance:**
 1. Install the ZDR filter and enable it globally
+2. Enable `HIDE_MODELS_WITHOUT_ZDR` in the pipe valves
 
 ## Installing the ZDR Filter in Open WebUI
 
@@ -231,8 +259,17 @@ https://raw.githubusercontent.com/starship-s/Open-WebUI-OpenRouter-pipe/main/fil
 2. Paste the URL above
 3. Save and enable
 
+## Enabling HIDE_MODELS_WITHOUT_ZDR
+
+1. Go to **Admin → Functions → [OpenRouter Pipe] → Valves**
+2. Find **HIDE_MODELS_WITHOUT_ZDR** and set it to `True`
+3. Refresh the model list
+
+This will hide any model that doesn't have a ZDR-compliant endpoint entry in OpenRouter's `/endpoints/zdr` catalog.
+
 ## Notes
 
 - The ZDR filter is toggleable - users can disable it per-chat if needed
 - Not all providers support ZDR; requests may fail if no ZDR-compliant providers are available for a model
+- When `HIDE_MODELS_WITHOUT_ZDR` is enabled, only models with at least one ZDR provider will appear
 - Consider enabling `ALLOW_FALLBACKS` in provider routing if you want fallback behavior

@@ -1,0 +1,61 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Fix ZDR slug matching against endpoint catalog
+
+This patch aligns ZDR model matching with the actual `/endpoints/zdr` payload,
+which often only provides `name` labels like `"Provider | author/model"` and
+omits structured slug fields. It also expands alias mapping using frontend
+endpoint metadata and ensures variant suffixes (e.g., `:free`) resolve to the
+base model.
+
+Highlights:
+- Extract slugs from label strings (Provider | author/model)
+- Include endpoint name + nested endpoint.model fields in alias mapping
+- Strip variant suffixes when checking ZDR provider availability
+
+To apply: git apply patches/0006-fix-zdr-slug-matching.patch
+To revert: git apply -R patches/0006-fix-zdr-slug-matching.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/models/registry.py
+
+================================================================================
+FILE: open_webui_openrouter_pipe/models/registry.py
+================================================================================
+
+1. Add helper to extract slugs from labels:
+
+   @staticmethod
+   def _extract_slug_from_label(value: Any) -> str:
+       """Extract an author/model slug from a label like 'Provider | author/model'."""
+       if not isinstance(value, str):
+           return ""
+       candidate = value.strip()
+       if not candidate:
+           return ""
+       parts = OpenRouterModelRegistry._safe_split(candidate, "|")
+       if parts:
+           candidate = parts[-1]
+       match = re.search(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+)", candidate)
+       if match:
+           return match.group(1)
+       if "/" in candidate:
+           return candidate.strip()
+       return ""
+
+2. Use `_extract_slug_from_label` inside `_normalize_zdr_model_slug` when
+   splitting label-based names.
+
+3. Expand alias mapping to include:
+   - `endpoint.name`
+   - nested `endpoint.model.{slug, permaslug, canonical_slug, model_variant_*}`
+
+4. Fall back to base id when a variant suffix is present:
+
+   if ":" in normalized:
+       base = normalized.split(":", 1)[0]
+       providers = cls._zdr_providers.get(base) or []
+

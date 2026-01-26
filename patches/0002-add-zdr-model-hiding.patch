@@ -1,0 +1,252 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add HIDE_MODELS_WITHOUT_ZDR valve to hide non-ZDR models
+
+This patch adds the ability to hide models that don't have Zero Data Retention
+(ZDR) endpoints available. When enabled via the HIDE_MODELS_WITHOUT_ZDR valve,
+only models with ZDR-compliant providers will be visible in the model list.
+
+The implementation:
+- Fetches ZDR endpoint catalog from OpenRouter's /endpoints/zdr API
+- Builds a mapping of which models have ZDR providers
+- Filters the model list based on ZDR availability
+- Reports ZDR restrictions in error messages
+
+To apply: git apply patches/0002-add-zdr-model-hiding.patch
+To revert: git apply -R patches/0002-add-zdr-model-hiding.patch
+
+Note: This patch modifies core pipe files. If upstream changes these files,
+you may need to resolve conflicts when merging.
+---
+
+This patch requires manual application of the following changes:
+
+================================================================================
+FILE: open_webui_openrouter_pipe/core/config.py
+================================================================================
+
+1. Add constant after _OPENROUTER_FRONTEND_MODELS_URL (around line 36):
+
+   _OPENROUTER_ZDR_ENDPOINT_SUFFIX = "/endpoints/zdr"
+
+2. Add valve after TOOL_CALLING_FILTER (around line 780):
+
+   HIDE_MODELS_WITHOUT_ZDR: bool = Field(
+       default=False,
+       description=(
+           "When True, hide any model that does not have a Zero Data Retention (ZDR) "
+           "endpoint entry. Only models present in `/endpoints/zdr` remain visible/usable."
+       ),
+   )
+
+================================================================================
+FILE: open_webui_openrouter_pipe/models/registry.py
+================================================================================
+
+1. Add class variable to OpenRouterModelRegistry (after _last_error_time):
+
+   _zdr_providers: Dict[str, list[str]] = {}  # normalized id -> provider tags
+
+2. Add static method for ZDR endpoint fetching:
+
+   @staticmethod
+   async def _fetch_zdr_endpoints(
+       session: aiohttp.ClientSession,
+       *,
+       base_url: str,
+       api_key: str,
+       http_referer: str | None,
+       logger: logging.Logger,
+   ) -> list[dict[str, Any]]:
+       """Fetch ZDR endpoint catalog from OpenRouter."""
+       from ..core.config import _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+       url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+       headers = {
+           "Authorization": f"Bearer {api_key}",
+           "X-Title": _OPENROUTER_TITLE,
+       }
+       if http_referer:
+           headers["HTTP-Referer"] = http_referer
+       try:
+           async with session.get(url, headers=headers) as resp:
+               resp.raise_for_status()
+               payload = await resp.json()
+       except Exception as exc:
+           logger.debug("Failed to fetch ZDR endpoints: %s", exc)
+           return []
+
+       data = payload.get("data") if isinstance(payload, dict) else None
+       if isinstance(data, list):
+           return data
+
+       logger.debug(
+           "ZDR endpoints payload had unexpected structure (type=%s).",
+           type(payload).__name__ if payload is not None else "None",
+       )
+       return []
+
+3. Add static method for normalizing ZDR model slug:
+
+   @staticmethod
+   def _normalize_zdr_model_slug(value: Any) -> str:
+       """Extract the model slug from a ZDR endpoint record."""
+       if not isinstance(value, dict):
+           return ""
+       # Try structured fields first
+       for key in ("model", "model_slug"):
+           candidate = value.get(key)
+           if isinstance(candidate, str) and candidate.strip():
+               return candidate.strip().lower()
+       # Try nested endpoint.model_variant_slug
+       endpoint = value.get("endpoint")
+       if isinstance(endpoint, dict):
+           variant = endpoint.get("model_variant_slug")
+           if isinstance(variant, str) and variant.strip():
+               return variant.strip().lower()
+       # Fall back to splitting name on |
+       name = value.get("name")
+       if isinstance(name, str) and "|" in name:
+           parts = name.split("|")
+           if len(parts) >= 2:
+               return parts[-1].strip().lower()
+       return ""
+
+4. Add static method for extracting ZDR provider tag:
+
+   @staticmethod
+   def _extract_zdr_provider_tag(entry: Any) -> str:
+       """Return a provider tag from the ZDR endpoint payload."""
+       if not isinstance(entry, dict):
+           return ""
+       endpoint = entry.get("endpoint")
+       if not isinstance(endpoint, dict):
+           return ""
+       provider_info = endpoint.get("provider_info")
+       if not isinstance(provider_info, dict):
+           return ""
+       provider_str = provider_info.get("slug") or provider_info.get("displayName") or ""
+       if isinstance(provider_str, str):
+           return provider_str.strip()
+       return ""
+
+5. Add class method for building ZDR provider mapping:
+
+   @classmethod
+   def _build_zdr_provider_mapping(
+       cls,
+       endpoints: list[dict[str, Any]] | None,
+       id_map: Dict[str, str],
+   ) -> Dict[str, list[str]]:
+       """Map normalized model ids -> ZDR provider tags."""
+       if not endpoints:
+           return {}
+
+       known_norms = set(id_map.keys())
+       mapping: Dict[str, list[str]] = {}
+
+       for entry in endpoints:
+           if not isinstance(entry, dict):
+               continue
+           slug = cls._normalize_zdr_model_slug(entry)
+           if not slug:
+               continue
+           norm = ModelFamily.base_model(sanitize_model_id(slug))
+           canonical_norm = id_map.get(norm, norm)
+           if canonical_norm not in known_norms:
+               continue
+
+           provider_str = cls._extract_zdr_provider_tag(entry)
+           if not provider_str:
+               continue
+
+           if canonical_norm not in mapping:
+               mapping[canonical_norm] = []
+           if provider_str not in mapping[canonical_norm]:
+               mapping[canonical_norm].append(provider_str)
+
+       return mapping
+
+6. Add class method for checking ZDR providers:
+
+   @classmethod
+   def zdr_providers_for(cls, model_id: str) -> list[str]:
+       """Return the list of ZDR provider tags for a model, if any."""
+       if not model_id:
+           return []
+       normalized = ModelFamily.base_model(sanitize_model_id(model_id))
+       providers = cls._zdr_providers.get(normalized) or []
+       return list(providers)
+
+7. Modify ensure_loaded() to fetch ZDR endpoints and build mapping.
+   After the line `cls._id_map = id_map`, add:
+
+       # Fetch ZDR endpoints and build provider mapping
+       zdr_endpoints = await cls._fetch_zdr_endpoints(
+           session,
+           base_url=base_url,
+           api_key=api_key,
+           http_referer=http_referer,
+           logger=logger,
+       )
+       cls._zdr_providers = cls._build_zdr_provider_mapping(zdr_endpoints, id_map)
+
+================================================================================
+FILE: open_webui_openrouter_pipe/pipe.py
+================================================================================
+
+1. Modify _apply_model_filters() to include ZDR filtering.
+   Change the method to:
+
+   @timed
+   def _apply_model_filters(self, models: list[dict[str, Any]], valves: "Pipe.Valves") -> list[dict[str, Any]]:
+       """Apply model capability filters (free pricing/tool calling/ZDR) to a model list."""
+       if not models:
+           return []
+
+       hide_non_zdr = bool(getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False))
+       free_mode = (getattr(valves, "FREE_MODEL_FILTER", "all") or "all").strip().lower()
+       tool_mode = (getattr(valves, "TOOL_CALLING_FILTER", "all") or "all").strip().lower()
+       if not hide_non_zdr and free_mode == "all" and tool_mode == "all":
+           return models
+
+       filtered: list[dict[str, Any]] = []
+       for model in models:
+           norm_id = model.get("norm_id") or ""
+           if not norm_id:
+               continue
+
+           if hide_non_zdr:
+               providers = OpenRouterModelRegistry.zdr_providers_for(
+                   model.get("id") or norm_id
+               )
+               if not providers:
+                   continue
+
+           if free_mode != "all":
+               is_free = self._is_free_model(norm_id)
+               if free_mode == "only" and not is_free:
+                   continue
+               if free_mode == "exclude" and is_free:
+                   continue
+
+           if tool_mode != "all":
+               supports_tools = self._supports_tool_calling(norm_id)
+               if tool_mode == "only" and not supports_tools:
+                   continue
+               if tool_mode == "exclude" and supports_tools:
+                   continue
+
+           filtered.append(model)
+
+       return filtered
+
+2. Modify _model_restriction_reasons() to report ZDR restrictions.
+   Add after the MODEL_ID check block:
+
+       if (
+           getattr(valves, "HIDE_MODELS_WITHOUT_ZDR", False)
+           and model_norm_id in catalog_norm_ids
+       ):
+           if not OpenRouterModelRegistry.zdr_providers_for(model_norm_id):
+               reasons.append("HIDE_MODELS_WITHOUT_ZDR")
+
+================================================================================
