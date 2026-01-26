@@ -2,7 +2,7 @@
 
 This folder contains reference Open WebUI filter functions used alongside the OpenRouter pipe.
 
-**Fork URL:** https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
+**Fork URL:** <https://github.com/starship-s/Open-WebUI-OpenRouter-pipe>
 
 ## ZDR (Zero Data Retention) filter
 
@@ -12,13 +12,6 @@ This folder contains reference Open WebUI filter functions used alongside the Op
 - **Note**: Not all providers support ZDR. Requests may fail if no ZDR-compliant providers are available for a model. Consider enabling `ALLOW_FALLBACKS` in provider routing settings.
 
 To install: Copy the contents into Open WebUI Functions (Admin → Functions → Add Function).
-
-### Hiding Non-ZDR Models
-
-To also **hide** models that don't have ZDR providers from the model list, enable the `HIDE_MODELS_WITHOUT_ZDR` valve on the pipe itself:
-1. Go to **Admin → Functions → [OpenRouter Pipe] → Valves**
-2. Set `HIDE_MODELS_WITHOUT_ZDR` to `True`
-3. Refresh the model list
 
 ## OpenRouter Search toggle
 
@@ -37,4 +30,5 @@ If you edit `openrouter_search_toggle.py` in this repo, it will not automaticall
 If you edit `openrouter_direct_uploads_toggle.py` in this repo, it will not automatically update your running Open WebUI unless you paste/install it manually (or you update the embedded filter source in the pipe).
 
 Reference documentation:
+
 - [OpenRouter Direct Uploads (bypass OWUI RAG)](../docs/openrouter_direct_uploads.md)
