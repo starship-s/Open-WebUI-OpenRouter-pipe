@@ -349,7 +349,7 @@ class OpenRouterModelRegistry:
         cls._specs = specs
         cls._id_map = id_map
 
-        # Fetch ZDR endpoints and build provider mapping
+        # Fetch ZDR endpoints and frontend catalog for mapping
         zdr_endpoints = await cls._fetch_zdr_endpoints(
             session,
             base_url=base_url,
@@ -357,7 +357,12 @@ class OpenRouterModelRegistry:
             http_referer=http_referer,
             logger=logger,
         )
-        cls._zdr_providers = cls._build_zdr_provider_mapping(zdr_endpoints, id_map)
+        frontend_data = await cls._fetch_frontend_catalog_for_mapping(session, logger)
+        cls._zdr_providers = cls._build_zdr_provider_mapping(
+            zdr_endpoints,
+            frontend_data,
+            id_map=id_map,
+        )
 
         # Share dynamic specs with ModelFamily for downstream feature checks.
         ModelFamily.set_dynamic_specs(specs)
@@ -430,33 +435,103 @@ class OpenRouterModelRegistry:
 
     @staticmethod
     @timed
-    def _normalize_zdr_model_slug(value: Any) -> str:
+    async def _fetch_frontend_catalog_for_mapping(
+        session: aiohttp.ClientSession,
+        logger: logging.Logger,
+    ) -> dict[str, Any] | None:
+        """Best-effort fetch of the frontend catalog for ZDR correlation."""
+        from ..core.config import _OPENROUTER_FRONTEND_MODELS_URL
+        try:
+            async with session.get(_OPENROUTER_FRONTEND_MODELS_URL) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
+        except Exception as exc:
+            logger.debug(
+                "OpenRouter frontend catalog fetch (for ZDR mapping) failed: %s", exc
+            )
+            return None
+
+        if isinstance(payload, dict):
+            return payload
+
+        logger.debug(
+            "Frontend catalog returned unexpected payload type for ZDR mapping: %s",
+            type(payload).__name__,
+        )
+        return None
+
+    @staticmethod
+    def _safe_split(value: str, sep: str) -> list[str]:
+        """Split string and return non-empty stripped parts."""
+        if not isinstance(value, str):
+            return []
+        return [part.strip() for part in value.split(sep) if part and part.strip()]
+
+    @classmethod
+    @timed
+    def _normalize_zdr_model_slug(cls, value: Any) -> str:
         """Extract the model slug from a ZDR endpoint record.
 
-        The ZDR endpoint payload does not mirror `/models`. Some entries expose
+        The ZDR endpoint payload does not mirror `/frontend/models`. Some entries expose
         `model`, `model_slug`, or nested `endpoint.model_variant_slug`, while others only
         include a display `name` such as ``"Provider | model"``. Prefer structured
         fields and fall back to splitting the name on ``|``.
         """
-        if not isinstance(value, dict):
-            return ""
-        # Try structured fields first
-        for key in ("model", "model_slug"):
-            candidate = value.get(key)
-            if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip().lower()
-        # Try nested endpoint.model_variant_slug
-        endpoint = value.get("endpoint")
-        if isinstance(endpoint, dict):
-            variant = endpoint.get("model_variant_slug")
-            if isinstance(variant, str) and variant.strip():
-                return variant.strip().lower()
-        # Fall back to splitting name on |
-        name = value.get("name")
-        if isinstance(name, str) and "|" in name:
-            parts = name.split("|")
-            if len(parts) >= 2:
-                return parts[-1].strip().lower()
+
+        def _add_candidate(
+            val: Any, *, split_name: bool = False, sink: list[str]
+        ) -> None:
+            if isinstance(val, str):
+                candidate = val.strip()
+                if not candidate:
+                    return
+                if split_name:
+                    parts = cls._safe_split(candidate, "|")
+                    if parts:
+                        sink.append(parts[-1])
+                sink.append(candidate)
+                return
+
+            if isinstance(val, dict):
+                for key in (
+                    "id",
+                    "slug",
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "name",
+                ):
+                    _add_candidate(val.get(key), split_name=(key == "name"), sink=sink)
+
+        candidates: list[str] = []
+        if isinstance(value, dict):
+            for key in ("model", "model_slug", "model_id", "slug", "id"):
+                _add_candidate(value.get(key), sink=candidates)
+
+            endpoint = value.get("endpoint")
+            if isinstance(endpoint, dict):
+                for key in (
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "slug",
+                    "permaslug",
+                    "id",
+                    "name",
+                ):
+                    _add_candidate(
+                        endpoint.get(key), split_name=(key == "name"), sink=candidates
+                    )
+
+            _add_candidate(value.get("name"), split_name=True, sink=candidates)
+        else:
+            _add_candidate(value, split_name=True, sink=candidates)
+
+        for candidate in candidates:
+            if candidate:
+                return candidate
         return ""
 
     @staticmethod
@@ -465,22 +540,40 @@ class OpenRouterModelRegistry:
         """Return a provider tag from the ZDR endpoint payload."""
         if not isinstance(entry, dict):
             return ""
-        endpoint = entry.get("endpoint")
-        if not isinstance(endpoint, dict):
-            return ""
-        provider_info = endpoint.get("provider_info")
-        if not isinstance(provider_info, dict):
-            return ""
-        provider_str = provider_info.get("slug") or provider_info.get("displayName") or ""
-        if isinstance(provider_str, str):
-            return provider_str.strip()
-        return ""
+
+        # Check root-level fields first
+        provider = entry.get("tag") or entry.get("provider_name")
+        provider_obj = entry.get("provider")
+        if not provider and isinstance(provider_obj, dict):
+            provider = (
+                provider_obj.get("tag")
+                or provider_obj.get("name")
+                or provider_obj.get("id")
+            )
+
+        # Fall back to endpoint.provider_info
+        if not provider:
+            endpoint = entry.get("endpoint")
+            if isinstance(endpoint, dict):
+                provider_info = endpoint.get("provider_info")
+                if isinstance(provider_info, dict):
+                    provider = (
+                        provider_info.get("slug")
+                        or provider_info.get("displayName")
+                        or provider_info.get("tag")
+                        or provider_info.get("name")
+                    )
+
+        provider_str = str(provider).strip() if provider else ""
+        return provider_str
 
     @classmethod
     @timed
     def _build_zdr_provider_mapping(
         cls,
         endpoints: list[dict[str, Any]] | None,
+        frontend_data: dict[str, Any] | None,
+        *,
         id_map: Dict[str, str],
     ) -> Dict[str, list[str]]:
         """Map normalized model ids -> ZDR provider tags."""
@@ -488,6 +581,43 @@ class OpenRouterModelRegistry:
             return {}
 
         known_norms = set(id_map.keys())
+
+        # Build alias mapping from frontend catalog to resolve variant slugs
+        alias_to_norm: dict[str, str] = {}
+        if isinstance(frontend_data, dict):
+            raw_items = frontend_data.get("data")
+            if isinstance(raw_items, list):
+                for item in raw_items:
+                    if not isinstance(item, dict):
+                        continue
+                    slug = item.get("slug")
+                    canonical_norm = None
+                    if isinstance(slug, str) and slug:
+                        canonical_norm = ModelFamily.base_model(sanitize_model_id(slug))
+                    if not canonical_norm:
+                        continue
+                    aliases: set[str] = set()
+                    for key in ("slug", "permaslug", "canonical_slug"):
+                        val = item.get(key)
+                        if isinstance(val, str) and val:
+                            aliases.add(val)
+                    endpoint = item.get("endpoint")
+                    if isinstance(endpoint, dict):
+                        for key in (
+                            "model",
+                            "model_slug",
+                            "model_variant_slug",
+                            "model_variant_permaslug",
+                            "slug",
+                            "permaslug",
+                        ):
+                            val = endpoint.get(key)
+                            if isinstance(val, str) and val:
+                                aliases.add(val)
+                    for alias in aliases:
+                        alias_norm = ModelFamily.base_model(sanitize_model_id(alias))
+                        alias_to_norm.setdefault(alias_norm, canonical_norm)
+
         mapping: Dict[str, list[str]] = {}
 
         for entry in endpoints:
@@ -497,7 +627,7 @@ class OpenRouterModelRegistry:
             if not slug:
                 continue
             norm = ModelFamily.base_model(sanitize_model_id(slug))
-            canonical_norm = id_map.get(norm, norm)
+            canonical_norm = alias_to_norm.get(norm, norm)
             if canonical_norm not in known_norms:
                 continue
 
@@ -505,10 +635,9 @@ class OpenRouterModelRegistry:
             if not provider_str:
                 continue
 
-            if canonical_norm not in mapping:
-                mapping[canonical_norm] = []
-            if provider_str not in mapping[canonical_norm]:
-                mapping[canonical_norm].append(provider_str)
+            providers = mapping.setdefault(canonical_norm, [])
+            if provider_str not in providers:
+                providers.append(provider_str)
 
         return mapping
 
