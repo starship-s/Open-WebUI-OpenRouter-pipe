@@ -34,6 +34,7 @@ _OPENROUTER_REFERER = "https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe/"
 _DEFAULT_PIPE_ID = "open_webui_openrouter_pipe"
 _FUNCTION_MODULE_PREFIX = "function_"
 _OPENROUTER_FRONTEND_MODELS_URL = "https://openrouter.ai/api/frontend/models"
+_OPENROUTER_ZDR_ENDPOINT_SUFFIX = "/endpoints/zdr"
 _OPENROUTER_SITE_URL = "https://openrouter.ai"
 _MAX_MODEL_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 _MAX_OPENROUTER_ID_CHARS = 128
@@ -748,6 +749,16 @@ class Valves(BaseModel):
         ge=60,
         description="How long to cache the OpenRouter model catalog (in seconds) before refreshing.",
     )
+    MODEL_ICON_OVERRIDES: str = Field(
+        default="",
+        title="Model icon overrides",
+        description=(
+            "JSON object mapping model authors or model IDs to custom icon URLs. "
+            "Authors are matched by the first part of the model slug (e.g., 'openai' in 'openai/gpt-4o'). "
+            "Full model IDs take precedence over author matches. "
+            'Example: {"openai": "https://example.com/openai.png", "anthropic/claude-3": "https://example.com/claude3.png"}'
+        ),
+    )
     NEW_MODEL_ACCESS_CONTROL: Literal["public", "admins"] = Field(
         default="admins",
         description=(
@@ -776,6 +787,13 @@ class Valves(BaseModel):
             "'all' disables filtering. "
             "'only' restricts to tool-capable models. "
             "'exclude' hides tool-capable models."
+        ),
+    )
+    HIDE_MODELS_WITHOUT_ZDR: bool = Field(
+        default=False,
+        description=(
+            "When True, hide any model that does not have a Zero Data Retention (ZDR) "
+            "endpoint entry. Only models present in `/endpoints/zdr` remain visible/usable."
         ),
     )
     VARIANT_MODELS: str = Field(
@@ -883,6 +901,22 @@ class Valves(BaseModel):
             "Reasoning effort requested for Open WebUI task payloads (titles, tags, etc.) when they target this pipe's models. "
             "Low is the default balance between speed and quality; set to 'minimal' to prioritize fastest runs (and disable auto web-search), "
             "or use medium/high for progressively deeper background reasoning at higher cost."
+        ),
+    )
+    TASK_TITLE_MODEL_ID: str = Field(
+        default="",
+        title="Task title model",
+        description=(
+            "When set, force Open WebUI title-generation tasks to use this model regardless of the requested model. "
+            "Accepts OpenRouter IDs such as `provider/model` or sanitized `provider.model`. Leave blank to respect the incoming task model."
+        ),
+    )
+    TASK_FOLLOWUP_MODEL_ID: str = Field(
+        default="",
+        title="Task follow-up model",
+        description=(
+            "When set, force Open WebUI follow-up suggestion tasks to use this model regardless of the requested model. "
+            "Accepts OpenRouter IDs such as `provider/model` or sanitized `provider.model`. Leave blank to respect the incoming task model."
         ),
     )
 

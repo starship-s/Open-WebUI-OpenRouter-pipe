@@ -1,0 +1,97 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add ZDR (Zero Data Retention) filter enabled by default
+
+This patch adds a Zero Data Retention filter that enforces ZDR mode
+on all OpenRouter requests by default. This ensures requests are only
+routed to providers that comply with data retention policies.
+
+The filter:
+- Sets provider.zdr = true for all requests
+- Is toggleable per-chat (can be disabled if needed)
+- Has no user configuration required (just enable/disable)
+
+To apply: git apply patches/0001-add-zdr-filter.patch
+To revert: git apply -R patches/0001-add-zdr-filter.patch
+---
+ filters/openrouter_zdr_filter.py | 67 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 67 insertions(+)
+ create mode 100644 filters/openrouter_zdr_filter.py
+
+diff --git a/filters/openrouter_zdr_filter.py b/filters/openrouter_zdr_filter.py
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/filters/openrouter_zdr_filter.py
+@@ -0,0 +1,67 @@
++"""
++title: ZDR (Zero Data Retention)
++author: starship-s
++author_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
++id: openrouter_zdr_filter
++description: Enforces Zero Data Retention mode on all OpenRouter requests. Only ZDR-compliant providers will be used.
++version: 0.1.0
++license: MIT
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Any
++
++try:
++    from open_webui.env import SRC_LOG_LEVELS
++except ImportError:
++    SRC_LOG_LEVELS = {}
++
++OWUI_OPENROUTER_PIPE_MARKER = "openrouter_pipe:zdr_filter:v1"
++_FEATURE_FLAG = "zdr"
++
++
++class Filter:
++    """
++    Zero Data Retention filter for OpenRouter requests.
++    
++    When enabled, this filter sets provider.zdr=true on all requests,
++    ensuring that only ZDR-compliant providers are used. This is useful
++    for compliance with data retention policies.
++    
++    See: https://openrouter.ai/docs/provider-routing
++    """
++    
++    # Toggleable filter (shows a switch in the Integrations menu).
++    # Set to True so users can disable ZDR per-chat if needed.
++    toggle = True
++
++    def __init__(self) -> None:
++        self.log = logging.getLogger("openrouter.zdr.filter")
++        self.log.setLevel(SRC_LOG_LEVELS.get("OPENAI", logging.INFO))
++        self.toggle = True
++
++    def inlet(
++        self,
++        body: dict[str, Any],
++        __metadata__: dict[str, Any] | None = None,
++    ) -> dict[str, Any]:
++        """Inject ZDR requirement into request metadata for the OpenRouter pipe."""
++        if __metadata__ is not None and not isinstance(__metadata__, dict):
++            return body
++
++        if isinstance(__metadata__, dict):
++            # Get or create the openrouter_pipe metadata section
++            prev_pipe_meta = __metadata__.get("openrouter_pipe")
++            pipe_meta = dict(prev_pipe_meta) if isinstance(prev_pipe_meta, dict) else {}
++            __metadata__["openrouter_pipe"] = pipe_meta
++
++            # Get or create the provider section
++            prev_provider = pipe_meta.get("provider")
++            provider = dict(prev_provider) if isinstance(prev_provider, dict) else {}
++            pipe_meta["provider"] = provider
++
++            # Set ZDR to true
++            provider["zdr"] = True
++            self.log.debug("ZDR filter: Enforcing Zero Data Retention mode")
++
++        return body
+-- 
+2.39.0
+

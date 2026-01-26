@@ -174,6 +174,7 @@ class OpenRouterModelRegistry:
     _models: list[dict[str, Any]] = []
     _specs: Dict[str, Dict[str, Any]] = {}
     _id_map: Dict[str, str] = {}  # normalized sanitized id -> original id
+    _zdr_providers: Dict[str, list[str]] = {}  # normalized id -> ZDR provider tags
     _last_fetch: float = 0.0
     _lock: asyncio.Lock = asyncio.Lock()
     _next_refresh_after: float = 0.0
@@ -348,6 +349,16 @@ class OpenRouterModelRegistry:
         cls._specs = specs
         cls._id_map = id_map
 
+        # Fetch ZDR endpoints and build provider mapping
+        zdr_endpoints = await cls._fetch_zdr_endpoints(
+            session,
+            base_url=base_url,
+            api_key=api_key,
+            http_referer=http_referer,
+            logger=logger,
+        )
+        cls._zdr_providers = cls._build_zdr_provider_mapping(zdr_endpoints, id_map)
+
         # Share dynamic specs with ModelFamily for downstream feature checks.
         ModelFamily.set_dynamic_specs(specs)
 
@@ -375,6 +386,145 @@ class OpenRouterModelRegistry:
         capped_backoff = min(cache_seconds, raw_backoff)
         backoff_until = cls._last_error_time + max(base_backoff, capped_backoff)
         cls._next_refresh_after = max(cls._next_refresh_after, backoff_until)
+
+    # -------------------------------------------------------------------------
+    # ZDR (Zero Data Retention) Endpoint Methods
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    @timed
+    async def _fetch_zdr_endpoints(
+        session: aiohttp.ClientSession,
+        *,
+        base_url: str,
+        api_key: str,
+        http_referer: str | None,
+        logger: logging.Logger,
+    ) -> list[dict[str, Any]]:
+        """Fetch ZDR endpoint catalog from OpenRouter."""
+        from ..core.config import _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+        url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "X-Title": _OPENROUTER_TITLE,
+        }
+        if http_referer:
+            headers["HTTP-Referer"] = http_referer
+        try:
+            async with session.get(url, headers=headers) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
+        except Exception as exc:
+            logger.debug("Failed to fetch ZDR endpoints: %s", exc)
+            return []
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, list):
+            return data
+
+        logger.debug(
+            "ZDR endpoints payload had unexpected structure (type=%s).",
+            type(payload).__name__ if payload is not None else "None",
+        )
+        return []
+
+    @staticmethod
+    @timed
+    def _normalize_zdr_model_slug(value: Any) -> str:
+        """Extract the model slug from a ZDR endpoint record.
+
+        The ZDR endpoint payload does not mirror `/models`. Some entries expose
+        `model`, `model_slug`, or nested `endpoint.model_variant_slug`, while others only
+        include a display `name` such as ``"Provider | model"``. Prefer structured
+        fields and fall back to splitting the name on ``|``.
+        """
+        if not isinstance(value, dict):
+            return ""
+        # Try structured fields first
+        for key in ("model", "model_slug"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip().lower()
+        # Try nested endpoint.model_variant_slug
+        endpoint = value.get("endpoint")
+        if isinstance(endpoint, dict):
+            variant = endpoint.get("model_variant_slug")
+            if isinstance(variant, str) and variant.strip():
+                return variant.strip().lower()
+        # Fall back to splitting name on |
+        name = value.get("name")
+        if isinstance(name, str) and "|" in name:
+            parts = name.split("|")
+            if len(parts) >= 2:
+                return parts[-1].strip().lower()
+        return ""
+
+    @staticmethod
+    @timed
+    def _extract_zdr_provider_tag(entry: Any) -> str:
+        """Return a provider tag from the ZDR endpoint payload."""
+        if not isinstance(entry, dict):
+            return ""
+        endpoint = entry.get("endpoint")
+        if not isinstance(endpoint, dict):
+            return ""
+        provider_info = endpoint.get("provider_info")
+        if not isinstance(provider_info, dict):
+            return ""
+        provider_str = provider_info.get("slug") or provider_info.get("displayName") or ""
+        if isinstance(provider_str, str):
+            return provider_str.strip()
+        return ""
+
+    @classmethod
+    @timed
+    def _build_zdr_provider_mapping(
+        cls,
+        endpoints: list[dict[str, Any]] | None,
+        id_map: Dict[str, str],
+    ) -> Dict[str, list[str]]:
+        """Map normalized model ids -> ZDR provider tags."""
+        if not endpoints:
+            return {}
+
+        known_norms = set(id_map.keys())
+        mapping: Dict[str, list[str]] = {}
+
+        for entry in endpoints:
+            if not isinstance(entry, dict):
+                continue
+            slug = cls._normalize_zdr_model_slug(entry)
+            if not slug:
+                continue
+            norm = ModelFamily.base_model(sanitize_model_id(slug))
+            canonical_norm = id_map.get(norm, norm)
+            if canonical_norm not in known_norms:
+                continue
+
+            provider_str = cls._extract_zdr_provider_tag(entry)
+            if not provider_str:
+                continue
+
+            if canonical_norm not in mapping:
+                mapping[canonical_norm] = []
+            if provider_str not in mapping[canonical_norm]:
+                mapping[canonical_norm].append(provider_str)
+
+        return mapping
+
+    @classmethod
+    @timed
+    def zdr_providers_for(cls, model_id: str) -> list[str]:
+        """Return the list of ZDR provider tags for a model, if any."""
+        if not model_id:
+            return []
+        normalized = ModelFamily.base_model(sanitize_model_id(model_id))
+        providers = cls._zdr_providers.get(normalized) or []
+        return list(providers)
+
+    # -------------------------------------------------------------------------
+    # Feature Derivation
+    # -------------------------------------------------------------------------
 
     @staticmethod
     @timed

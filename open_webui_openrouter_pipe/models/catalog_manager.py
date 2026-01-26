@@ -158,8 +158,29 @@ class ModelCatalogManager:
         )
 
     @timed
+    def _parse_icon_overrides(self) -> dict[str, str]:
+        """Parse MODEL_ICON_OVERRIDES valve into a dict mapping authors/slugs to icon URLs."""
+        raw_value = (getattr(self._pipe.valves, "MODEL_ICON_OVERRIDES", "") or "").strip()
+        if not raw_value:
+            return {}
+        try:
+            import json
+            parsed = json.loads(raw_value)
+            if not isinstance(parsed, dict):
+                self.logger.warning("MODEL_ICON_OVERRIDES is not a JSON object; ignoring")
+                return {}
+            # Normalize keys to lowercase for case-insensitive matching
+            return {k.strip().lower(): v for k, v in parsed.items() if isinstance(k, str) and isinstance(v, str)}
+        except Exception as exc:
+            self.logger.warning("Failed to parse MODEL_ICON_OVERRIDES JSON: %s", exc)
+            return {}
+
+    @timed
     def _build_icon_mapping(self, frontend_data: dict[str, Any] | None) -> dict[str, str]:
         """Build a slug -> icon URL mapping from the frontend catalog."""
+        # Parse user-configured icon overrides
+        icon_overrides = self._parse_icon_overrides()
+
         if not isinstance(frontend_data, dict):
             return {}
         raw_items = frontend_data.get("data")
@@ -240,9 +261,20 @@ class ModelCatalogManager:
                 favicon = _favicon_url(provider_hint_url)
                 if favicon:
                     icon_url = favicon
+
+            # Fallback to user-configured icon overrides
+            if not icon_url and icon_overrides:
+                slug_lower = slug.lower()
+                # Try full slug match first (e.g., "openai/gpt-4o")
+                if slug_lower in icon_overrides:
+                    icon_url = icon_overrides[slug_lower]
                 else:
-                    continue
-            else:
+                    # Try author match (first part of slug, e.g., "openai")
+                    author = slug_lower.split("/", 1)[0] if "/" in slug_lower else slug_lower
+                    if author in icon_overrides:
+                        icon_url = icon_overrides[author]
+
+            if not icon_url:
                 continue
             icon_mapping[slug] = icon_url
 

@@ -1,0 +1,72 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add TASK_TITLE_MODEL_ID and TASK_FOLLOWUP_MODEL_ID valves
+
+This patch adds the ability to hardcode which models are used for Open WebUI's
+background task operations:
+
+- TASK_TITLE_MODEL_ID: Force a specific model for chat title generation
+- TASK_FOLLOWUP_MODEL_ID: Force a specific model for follow-up question suggestions
+
+This allows using cheaper/faster models for these background tasks while keeping
+more capable models for the main chat interactions.
+
+To apply: git apply patches/0003-add-task-model-overrides.patch
+To revert: git apply -R patches/0003-add-task-model-overrides.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/core/config.py - Adds valve definitions
+- open_webui_openrouter_pipe/requests/task_model_adapter.py - Applies overrides
+
+================================================================================
+Changes in config.py (after TASK_MODEL_REASONING_EFFORT):
+================================================================================
+
+    TASK_TITLE_MODEL_ID: str = Field(
+        default="",
+        title="Task title model",
+        description=(
+            "When set, force Open WebUI title-generation tasks to use this model regardless of the requested model. "
+            "Accepts OpenRouter IDs such as `provider/model` or sanitized `provider.model`. Leave blank to respect the incoming task model."
+        ),
+    )
+    TASK_FOLLOWUP_MODEL_ID: str = Field(
+        default="",
+        title="Task follow-up model",
+        description=(
+            "When set, force Open WebUI follow-up suggestion tasks to use this model regardless of the requested model. "
+            "Accepts OpenRouter IDs such as `provider/model` or sanitized `provider.model`. Leave blank to respect the incoming task model."
+        ),
+    )
+
+================================================================================
+Changes in task_model_adapter.py (_run_task_model_request method):
+================================================================================
+
+At the beginning of the method, after creating task_body, add:
+
+        # Apply task model overrides based on task type
+        task_name = self._task_name(task_context)
+        task_name_lower = task_name.lower() if task_name else ""
+        if task_name_lower:
+            title_override_model = (getattr(valves, "TASK_TITLE_MODEL_ID", "") or "").strip()
+            followup_override_model = (getattr(valves, "TASK_FOLLOWUP_MODEL_ID", "") or "").strip()
+            if title_override_model and "title" in task_name_lower:
+                self.logger.debug(
+                    "Using TASK_TITLE_MODEL_ID override for task=%s: %s",
+                    task_name,
+                    title_override_model,
+                )
+                task_body["model"] = title_override_model
+            elif followup_override_model and "follow" in task_name_lower:
+                self.logger.debug(
+                    "Using TASK_FOLLOWUP_MODEL_ID override for task=%s: %s",
+                    task_name,
+                    followup_override_model,
+                )
+                task_body["model"] = followup_override_model
+
+================================================================================

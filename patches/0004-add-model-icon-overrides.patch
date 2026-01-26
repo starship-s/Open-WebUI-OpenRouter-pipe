@@ -1,0 +1,101 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add MODEL_ICON_OVERRIDES valve for custom model icons
+
+This patch adds the ability to override model icons via a JSON configuration.
+This is useful when:
+- A model author doesn't have a good icon in the OpenRouter catalog
+- You want to use custom branding for certain models
+- Provider icons are missing or low quality
+
+The valve accepts a JSON object mapping authors or model IDs to icon URLs:
+- Author matches: "openai" -> matches all openai/* models
+- Full slug matches: "openai/gpt-4o" -> matches only that specific model
+- Full slug matches take precedence over author matches
+
+To apply: git apply patches/0004-add-model-icon-overrides.patch
+To revert: git apply -R patches/0004-add-model-icon-overrides.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/core/config.py - Adds MODEL_ICON_OVERRIDES valve
+- open_webui_openrouter_pipe/models/catalog_manager.py - Parses and applies overrides
+
+================================================================================
+Changes in config.py (after MODEL_CATALOG_REFRESH_SECONDS):
+================================================================================
+
+    MODEL_ICON_OVERRIDES: str = Field(
+        default="",
+        title="Model icon overrides",
+        description=(
+            "JSON object mapping model authors or model IDs to custom icon URLs. "
+            "Authors are matched by the first part of the model slug (e.g., 'openai' in 'openai/gpt-4o'). "
+            "Full model IDs take precedence over author matches. "
+            'Example: {"openai": "https://example.com/openai.png", "anthropic/claude-3": "https://example.com/claude3.png"}'
+        ),
+    )
+
+================================================================================
+Changes in catalog_manager.py:
+================================================================================
+
+1. Add new method _parse_icon_overrides() before _build_icon_mapping():
+
+    @timed
+    def _parse_icon_overrides(self) -> dict[str, str]:
+        """Parse MODEL_ICON_OVERRIDES valve into a dict mapping authors/slugs to icon URLs."""
+        raw_value = (getattr(self._pipe.valves, "MODEL_ICON_OVERRIDES", "") or "").strip()
+        if not raw_value:
+            return {}
+        try:
+            import json
+            parsed = json.loads(raw_value)
+            if not isinstance(parsed, dict):
+                self.logger.warning("MODEL_ICON_OVERRIDES is not a JSON object; ignoring")
+                return {}
+            # Normalize keys to lowercase for case-insensitive matching
+            return {k.strip().lower(): v for k, v in parsed.items() if isinstance(k, str) and isinstance(v, str)}
+        except Exception as exc:
+            self.logger.warning("Failed to parse MODEL_ICON_OVERRIDES JSON: %s", exc)
+            return {}
+
+2. At the start of _build_icon_mapping(), parse the overrides:
+
+        # Parse user-configured icon overrides
+        icon_overrides = self._parse_icon_overrides()
+
+3. After the favicon fallback, add override fallback logic:
+
+            # Fallback to user-configured icon overrides
+            if not icon_url and icon_overrides:
+                slug_lower = slug.lower()
+                # Try full slug match first (e.g., "openai/gpt-4o")
+                if slug_lower in icon_overrides:
+                    icon_url = icon_overrides[slug_lower]
+                else:
+                    # Try author match (first part of slug, e.g., "openai")
+                    author = slug_lower.split("/", 1)[0] if "/" in slug_lower else slug_lower
+                    if author in icon_overrides:
+                        icon_url = icon_overrides[author]
+
+================================================================================
+Example Usage:
+================================================================================
+
+Set MODEL_ICON_OVERRIDES valve to:
+
+{
+    "01-ai": "https://example.com/01ai.png",
+    "ai21": "https://example.com/ai21.png",
+    "anthropic/claude-3-opus": "https://example.com/opus.png"
+}
+
+This will:
+- Use the 01-ai icon for all 01-ai/* models
+- Use the ai21 icon for all ai21/* models
+- Use the opus icon specifically for anthropic/claude-3-opus (other anthropic models unaffected)
+
+================================================================================

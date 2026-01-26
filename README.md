@@ -1,8 +1,11 @@
 # Open WebUI → OpenRouter Pipe
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.6-blue.svg)](https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe)
+[![Version](https://img.shields.io/badge/version-2.0.27--zdr-blue.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
 [![Open WebUI Compatible](https://img.shields.io/badge/Open%20WebUI-0.7.0%2B-green.svg)](https://openwebui.com/)
+[![Fork](https://img.shields.io/badge/fork-starship--s-purple.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
+
+> **This is a fork** of [rbb-dev/Open-WebUI-OpenRouter-pipe](https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe) with ZDR (Zero Data Retention) enforcement and additional personal customizations.
 
 **Access 350+ AI models through one interface.**
 
@@ -80,7 +83,7 @@ Pick one:
 **Readable bundle (easy to audit/edit):**
 
 ```
-https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe/releases/latest/download/open_webui_openrouter_pipe_bundled.py
+https://github.com/starship-s/Open-WebUI-OpenRouter-pipe/releases/latest/download/open_webui_openrouter_pipe_bundled.py
 ```
 
 **Compressed bundle (same behavior, smaller + less clutter in the editor):**
@@ -99,7 +102,7 @@ For the latest development commits (may be unstable):
 **Readable bundle:**
 
 ```
-https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe/releases/download/dev/open_webui_openrouter_pipe_bundled.py
+https://github.com/starship-s/Open-WebUI-OpenRouter-pipe/releases/download/dev/open_webui_openrouter_pipe_bundled.py
 ```
 
 **Compressed bundle:**
@@ -109,6 +112,17 @@ https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe/releases/download/dev/open
 ```
 
 </details>
+
+### Fork-Specific Features
+
+This fork includes additional features not in upstream:
+
+- **ZDR Filter** (`filters/openrouter_zdr_filter.py`) - Enforces Zero Data Retention on all requests
+- **`HIDE_MODELS_WITHOUT_ZDR`** valve - Hides models without ZDR-compliant providers
+- **`TASK_TITLE_MODEL_ID`** / **`TASK_FOLLOWUP_MODEL_ID`** valves - Override models for background tasks
+- **`MODEL_ICON_OVERRIDES`** valve - Custom model icons via JSON configuration
+
+See `patches/README.md` for details.
 
 **2. Enable**
 

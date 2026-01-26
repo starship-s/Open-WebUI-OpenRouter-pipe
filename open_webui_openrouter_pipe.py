@@ -1,19 +1,20 @@
 """
-title: Open WebUI OpenRouter Responses Pipe
-author: rbb-dev
-author_url: https://github.com/rbb-dev
-git_url: https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe
+title: Open WebUI OpenRouter Responses Pipe (ZDR Fork)
+author: starship-s
+author_url: https://github.com/starship-s
+git_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
 id: open_webui_openrouter_pipe
-description: Stub loader that installs and imports the full pipe from GitHub
+description: OpenRouter Responses API pipe with ZDR enforcement and custom features
 required_open_webui_version: 0.7.0
-version: 2.0.6
-requirements: git+https://github.com/rbb-dev/Open-WebUI-OpenRouter-pipe.git@v2.0.6
+version: 2.0.27-zdr
+requirements: git+https://github.com/starship-s/Open-WebUI-OpenRouter-pipe.git@main
 license: MIT
 
-This is a lightweight stub for Open WebUI.
-
-If you fork this repo:
-- Update the `requirements:` URL to point to *your fork*, otherwise Open WebUI will keep installing from *this* upstream repo.
+This is a fork of rbb-dev/Open-WebUI-OpenRouter-pipe with:
+- ZDR (Zero Data Retention) enforcement
+- HIDE_MODELS_WITHOUT_ZDR valve
+- Task model overrides (TASK_TITLE_MODEL_ID, TASK_FOLLOWUP_MODEL_ID)
+- Model icon overrides (MODEL_ICON_OVERRIDES)
 
 """
 
