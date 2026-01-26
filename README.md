@@ -1,7 +1,7 @@
 # Open WebUI → OpenRouter Pipe
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.7--zdr-blue.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
+[![Version](https://img.shields.io/badge/version-2.0.8--zdr-blue.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
 [![Open WebUI Compatible](https://img.shields.io/badge/Open%20WebUI-0.6.28%2B-green.svg)](https://openwebui.com/)
 [![Fork](https://img.shields.io/badge/fork-starship--s-purple.svg)](https://github.com/starship-s/Open-WebUI-OpenRouter-pipe)
 
@@ -99,7 +99,10 @@ https://github.com/starship-s/Open-WebUI-OpenRouter-pipe/releases/download/dev/o
 
 This fork includes additional features not in upstream:
 
-- **ZDR Filter** (`filters/openrouter_zdr_filter.py`) - Enforces Zero Data Retention on all requests
+- **ZDR Filter** - Enforces Zero Data Retention on all requests
+  - `AUTO_INSTALL_ZDR_FILTER` - Auto-installs the filter (default: on)
+  - `AUTO_ATTACH_ZDR_FILTER` - Attaches filter to models with ZDR providers (default: on)
+  - `AUTO_DEFAULT_ZDR_FILTER` - Enables ZDR by default on supported models (default: on)
 - **`HIDE_MODELS_WITHOUT_ZDR`** valve - Hides models without ZDR-compliant providers
 - **`TASK_TITLE_MODEL_ID`** / **`TASK_FOLLOWUP_MODEL_ID`** valves - Override models for background tasks
 - **`MODEL_ICON_OVERRIDES`** valve - Custom model icons via JSON configuration

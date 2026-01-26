@@ -175,24 +175,29 @@ This will:
 
 ### 0005-add-zdr-auto-install.patch
 
-Adds the `AUTO_INSTALL_ZDR_FILTER` valve to automatically install/update the ZDR filter.
+Adds ZDR filter auto-install, per-model attachment, and default-on behavior.
 
 - **Type:** Modifies existing files (may require conflict resolution on upstream updates)
 - **Files modified:**
-  - `open_webui_openrouter_pipe/core/config.py` - Adds constants and `AUTO_INSTALL_ZDR_FILTER` valve
+  - `open_webui_openrouter_pipe/core/config.py` - Adds `AUTO_INSTALL_ZDR_FILTER`, `AUTO_ATTACH_ZDR_FILTER`, and `AUTO_DEFAULT_ZDR_FILTER` valves
   - `open_webui_openrouter_pipe/pipe.py` - Adds filter render method, ensure method, and auto-install logic
+  - `open_webui_openrouter_pipe/models/catalog_manager.py` - Adds per-model ZDR filter attachment
+
+| Valve | Default | Description |
+|-------|---------|-------------|
+| `AUTO_INSTALL_ZDR_FILTER` | True | Automatically creates/updates the ZDR filter function |
+| `AUTO_ATTACH_ZDR_FILTER` | True | Attaches ZDR filter to models with ZDR-compliant providers |
+| `AUTO_DEFAULT_ZDR_FILTER` | True | Enables ZDR by default on attached models |
 
 **How it works:**
-- When the pipe loads models, it checks if the ZDR filter exists
-- If not found, it creates the filter automatically
-- If found, it updates the filter code to the latest version
-- The filter appears in **Admin → Functions** as "ZDR (Zero Data Retention)"
-- Users can toggle it on/off per chat in **Settings → Integrations**
+- `AUTO_INSTALL_ZDR_FILTER`: Creates the ZDR filter function in Open WebUI on first load
+- `AUTO_ATTACH_ZDR_FILTER`: For each model with ZDR providers, adds the filter to its `filterIds` (making the toggle appear in Integrations)
+- `AUTO_DEFAULT_ZDR_FILTER`: For attached models, adds the filter to `defaultFilterIds` (enabling ZDR by default)
+- Users can still toggle ZDR off per chat in **Settings → Integrations**
 
-**Configuration:**
-1. By default, `AUTO_INSTALL_ZDR_FILTER` is enabled (True)
-2. To disable: Go to **Admin → Functions → [OpenRouter Pipe] → Valves** and set to `False`
-3. Once installed, the filter can be toggled on/off per chat without reinstalling
+**Per-model control:** Operators can disable auto-attachment on specific models via model params:
+- `disable_zdr_auto_attach`: Prevents filter attachment
+- `disable_zdr_default_on`: Prevents default-on behavior
 
 ## ZDR Feature Summary
 
