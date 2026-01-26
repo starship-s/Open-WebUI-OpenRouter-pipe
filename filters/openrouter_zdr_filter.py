@@ -29,7 +29,10 @@ except ImportError:
 
 OWUI_OPENROUTER_PIPE_MARKER = "openrouter_pipe:zdr_filter:v1"
 _FEATURE_FLAG = "zdr"
-_OPENROUTER_ZDR_ENDPOINT = "https://openrouter.ai/api/v1/endpoints/zdr"
+_OPENROUTER_TITLE = "Open WebUI OpenRouter ZDR Filter"
+_OPENROUTER_REFERER = "https://github.com/starship-s/Open-WebUI-OpenRouter-pipe"
+_OPENROUTER_FRONTEND_MODELS_URL = "https://openrouter.ai/api/frontend/models"
+_OPENROUTER_ZDR_ENDPOINT_SUFFIX = "/endpoints/zdr"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _ZDR_CACHE_SECONDS = 3600  # Cache for 1 hour
 
@@ -48,6 +51,7 @@ class ZDRProviderCache:
         *,
         api_key: str,
         base_url: str = _OPENROUTER_BASE_URL,
+        http_referer: str | None = None,
         logger: logging.Logger,
     ) -> list[str]:
         """Get ZDR providers for a model, fetching and caching if needed."""
@@ -65,7 +69,12 @@ class ZDRProviderCache:
             if cls._providers and (now - cls._last_fetch) < _ZDR_CACHE_SECONDS:
                 return cls._get_cached_providers(model_id)
             
-            await cls._refresh_cache(api_key=api_key, base_url=base_url, logger=logger)
+            await cls._refresh_cache(
+                api_key=api_key,
+                base_url=base_url,
+                http_referer=http_referer,
+                logger=logger,
+            )
             return cls._get_cached_providers(model_id)
     
     @classmethod
@@ -87,6 +96,7 @@ class ZDRProviderCache:
         *,
         api_key: str,
         base_url: str,
+        http_referer: str | None,
         logger: logging.Logger,
     ) -> None:
         """Fetch ZDR endpoints from OpenRouter and rebuild the cache."""
@@ -94,16 +104,21 @@ class ZDRProviderCache:
             logger.warning("aiohttp not available, cannot fetch ZDR endpoints")
             return
         
-        url = _OPENROUTER_ZDR_ENDPOINT
+        url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
         headers = {
             "Authorization": f"Bearer {api_key}",
+            "X-Title": _OPENROUTER_TITLE,
+            "HTTP-Referer": (http_referer or _OPENROUTER_REFERER),
         }
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
                     resp.raise_for_status()
                     payload = await resp.json()
+                frontend_data = await cls._fetch_frontend_catalog(session, logger)
         except Exception as exc:
             logger.debug("Failed to fetch ZDR endpoints: %s", exc)
             return
@@ -113,88 +128,241 @@ class ZDRProviderCache:
             logger.debug("ZDR endpoints payload had unexpected structure")
             return
         
+        # Build alias mapping from frontend catalog for canonical normalization.
+        alias_to_norm = cls._build_alias_map(frontend_data)
+
         # Build mapping: normalized model_id -> [provider tags]
         mapping: Dict[str, list[str]] = {}
         for entry in data:
             if not isinstance(entry, dict):
                 continue
-            
-            model_slug = cls._extract_model_slug(entry)
+
+            model_slug = cls._normalize_zdr_model_slug(entry)
             if not model_slug:
                 continue
-            
+
             provider_tag = cls._extract_provider_tag(entry)
             if not provider_tag:
                 continue
-            
-            normalized = cls._normalize_model_id(model_slug)
-            if normalized not in mapping:
-                mapping[normalized] = []
-            
-            if provider_tag not in mapping[normalized]:
-                mapping[normalized].append(provider_tag)
+
+            normalized = cls._base_model(cls._normalize_model_id(model_slug))
+            canonical_norm = alias_to_norm.get(normalized, normalized)
+            providers = mapping.setdefault(canonical_norm, [])
+            if provider_tag not in providers:
+                providers.append(provider_tag)
         
         cls._providers = mapping
         cls._last_fetch = time.time()
         logger.debug("Refreshed ZDR provider cache with %d models", len(mapping))
     
     @staticmethod
+    async def _fetch_frontend_catalog(
+        session: "aiohttp.ClientSession", logger: logging.Logger
+    ) -> dict[str, Any] | None:
+        """Best-effort fetch of the frontend catalog for alias mapping."""
+        try:
+            async with session.get(
+                _OPENROUTER_FRONTEND_MODELS_URL,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
+        except Exception as exc:
+            logger.debug("OpenRouter frontend catalog fetch failed: %s", exc)
+            return None
+
+        if isinstance(payload, dict):
+            return payload
+        logger.debug(
+            "Frontend catalog returned unexpected payload type: %s",
+            type(payload).__name__,
+        )
+        return None
+
+    @staticmethod
     def _normalize_model_id(model_id: str) -> str:
         """Normalize a model ID for cache lookup."""
         if not isinstance(model_id, str):
             return ""
-        
+
         # Remove openrouter.ai/ prefix if present
         normalized = model_id.strip().lower()
         if normalized.startswith("openrouter.ai/"):
             normalized = normalized[14:]
-        
+
         # Sanitize special characters
         normalized = re.sub(r"[^a-z0-9/:._-]", "-", normalized)
-        
+
         return normalized
-    
+
     @staticmethod
-    def _extract_model_slug(entry: dict) -> str:
-        """Extract model slug from a ZDR endpoint entry."""
-        # Try structured fields first
-        for key in ("model", "model_slug", "model_id", "slug", "id"):
-            value = entry.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        
-        # Try nested endpoint object
-        endpoint = entry.get("endpoint")
-        if isinstance(endpoint, dict):
-            for key in ("model", "model_slug", "model_variant_slug", "slug", "id"):
-                value = endpoint.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-        
-        # Fall back to parsing name like "Provider | model"
-        name = entry.get("name")
-        if isinstance(name, str):
-            parts = [p.strip() for p in name.split("|") if p.strip()]
-            if parts:
-                return parts[-1]
-        
+    def _base_model(model_id: str) -> str:
+        """Strip variant suffixes like ':free' for base mapping."""
+        if not isinstance(model_id, str):
+            return ""
+        return model_id.split(":", 1)[0]
+
+    @staticmethod
+    def _safe_split(value: Any, sep: str) -> list[str]:
+        if not isinstance(value, str):
+            return []
+        return [part.strip() for part in value.split(sep) if part and part.strip()]
+
+    @staticmethod
+    def _extract_slug_from_label(value: Any) -> str:
+        """Extract an author/model slug from a label like 'Provider | author/model'."""
+        if not isinstance(value, str):
+            return ""
+        candidate = value.strip()
+        if not candidate:
+            return ""
+
+        parts = ZDRProviderCache._safe_split(candidate, "|")
+        if parts:
+            candidate = parts[-1]
+
+        match = re.search(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+)", candidate)
+        if match:
+            return match.group(1)
+
+        if "/" in candidate:
+            return candidate.strip()
         return ""
-    
+
+    @staticmethod
+    def _normalize_zdr_model_slug(value: Any) -> str:
+        """Extract the model slug from a ZDR endpoint record."""
+
+        def _add_candidate(val: Any, *, split_name: bool, sink: list[str]) -> None:
+            if isinstance(val, str):
+                candidate = val.strip()
+                if not candidate:
+                    return
+                if split_name:
+                    slug = ZDRProviderCache._extract_slug_from_label(candidate)
+                    if slug:
+                        sink.append(slug)
+                sink.append(candidate)
+                return
+
+            if isinstance(val, dict):
+                for key in (
+                    "id",
+                    "slug",
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "name",
+                ):
+                    _add_candidate(val.get(key), split_name=(key == "name"), sink=sink)
+
+        candidates: list[str] = []
+        if isinstance(value, dict):
+            for key in ("model", "model_slug", "model_id", "slug", "id"):
+                _add_candidate(value.get(key), split_name=False, sink=candidates)
+
+            endpoint = value.get("endpoint")
+            if isinstance(endpoint, dict):
+                for key in (
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "slug",
+                    "permaslug",
+                    "id",
+                    "name",
+                ):
+                    _add_candidate(
+                        endpoint.get(key), split_name=(key == "name"), sink=candidates
+                    )
+
+            _add_candidate(value.get("name"), split_name=True, sink=candidates)
+        else:
+            _add_candidate(value, split_name=True, sink=candidates)
+
+        for candidate in candidates:
+            if candidate:
+                return candidate
+        return ""
+
+    @staticmethod
+    def _build_alias_map(frontend_data: dict[str, Any] | None) -> dict[str, str]:
+        """Build alias -> canonical model mapping from frontend catalog."""
+        if not isinstance(frontend_data, dict):
+            return {}
+        raw_items = frontend_data.get("data")
+        if not isinstance(raw_items, list):
+            return {}
+
+        alias_to_norm: dict[str, str] = {}
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("slug")
+            if not isinstance(slug, str) or not slug:
+                continue
+            canonical_norm = ZDRProviderCache._base_model(
+                ZDRProviderCache._normalize_model_id(slug)
+            )
+            if not canonical_norm:
+                continue
+
+            aliases: set[str] = set()
+            for key in ("slug", "permaslug", "canonical_slug"):
+                val = item.get(key)
+                if isinstance(val, str) and val:
+                    aliases.add(val)
+            endpoint = item.get("endpoint")
+            if isinstance(endpoint, dict):
+                for key in (
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "slug",
+                    "permaslug",
+                ):
+                    val = endpoint.get(key)
+                    if isinstance(val, str) and val:
+                        aliases.add(val)
+
+            for alias in aliases:
+                alias_norm = ZDRProviderCache._base_model(
+                    ZDRProviderCache._normalize_model_id(alias)
+                )
+                if alias_norm:
+                    alias_to_norm.setdefault(alias_norm, canonical_norm)
+
+        return alias_to_norm
+
     @staticmethod
     def _extract_provider_tag(entry: dict) -> str:
         """Extract provider tag from a ZDR endpoint entry."""
-        # Check root-level fields
         tag = entry.get("tag") or entry.get("provider_name")
         if isinstance(tag, str) and tag.strip():
             return tag.strip()
-        
-        # Check provider object
+
         provider = entry.get("provider")
         if isinstance(provider, dict):
             tag = provider.get("tag") or provider.get("name") or provider.get("id")
             if isinstance(tag, str) and tag.strip():
                 return tag.strip()
-        
+
+        endpoint = entry.get("endpoint")
+        if isinstance(endpoint, dict):
+            provider_info = endpoint.get("provider_info")
+            if isinstance(provider_info, dict):
+                tag = (
+                    provider_info.get("slug")
+                    or provider_info.get("displayName")
+                    or provider_info.get("tag")
+                    or provider_info.get("name")
+                )
+                if isinstance(tag, str) and tag.strip():
+                    return tag.strip()
+
         return ""
 
 
@@ -251,7 +419,7 @@ class Filter:
             provider["zdr"] = True
             
             # Get model ID from body
-            model_id = body.get("model", "")
+            model_id = body.get("model_id", "") or body.get("model", "")
             if not model_id and isinstance(body.get("models"), list):
                 models_list = body["models"]
                 if models_list:
@@ -260,6 +428,7 @@ class Filter:
             # Fetch ZDR providers for this model
             if model_id and aiohttp:
                 api_key = os.environ.get("OPENROUTER_API_KEY", "")
+                http_referer = os.environ.get("HTTP_REFERER_OVERRIDE", "").strip() or None
                 if api_key:
                     try:
                         # Run async function in sync context
@@ -273,6 +442,7 @@ class Filter:
                                     ZDRProviderCache.get_providers_for_model(
                                         model_id,
                                         api_key=api_key,
+                                        http_referer=http_referer,
                                         logger=self.log,
                                     )
                                 )
@@ -282,6 +452,7 @@ class Filter:
                                     ZDRProviderCache.get_providers_for_model(
                                         model_id,
                                         api_key=api_key,
+                                        http_referer=http_referer,
                                         logger=self.log,
                                     )
                                 )
@@ -293,13 +464,28 @@ class Filter:
                                 ZDRProviderCache.get_providers_for_model(
                                     model_id,
                                     api_key=api_key,
+                                    http_referer=http_referer,
                                     logger=self.log,
                                 )
                             )
                             loop.close()
                         
                         if providers:
-                            provider["only"] = providers
+                            existing_only = provider.get("only")
+                            if isinstance(existing_only, list):
+                                merged = []
+                                seen = set()
+                                for entry in list(existing_only) + providers:
+                                    if not isinstance(entry, str):
+                                        continue
+                                    cleaned = entry.strip()
+                                    if not cleaned or cleaned in seen:
+                                        continue
+                                    seen.add(cleaned)
+                                    merged.append(cleaned)
+                                provider["only"] = merged
+                            else:
+                                provider["only"] = providers
                             self.log.debug(
                                 "ZDR filter: Set provider.only=%s for model %s",
                                 providers,

@@ -1,3 +1,17 @@
+## 2.0.23-zdr (2026-01-26)
+
+### 🚀 Features
+
+- ZDR filter: Enhanced model slug normalization with frontend catalog alias mapping
+- ZDR filter: Add HTTP referer support via HTTP_REFERER_OVERRIDE environment variable
+- ZDR filter: Improved provider list merging when provider.only already exists
+- ZDR filter: Better model ID extraction from request body (supports both model and model_id fields)
+
+### 🐛 Bug Fixes
+
+- ZDR filter: Refactor endpoint URL construction to use full URL instead of suffix
+- ZDR filter: Fix model slug extraction from ZDR endpoint records with improved parsing logic
+
 ## 2.0.22-zdr (2026-01-26)
 
 ### 🐛 Bug Fixes
