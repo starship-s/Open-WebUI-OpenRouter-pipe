@@ -30,6 +30,10 @@ class Filter:
     ensuring that only ZDR-compliant providers are used. This is useful
     for compliance with data retention policies.
     
+    This filter enforces ZDR on requests. To also HIDE non-ZDR models from
+    the model list, enable the HIDE_MODELS_WITHOUT_ZDR valve on the pipe itself
+    (Admin -> Functions -> [OpenRouter Pipe] -> Valves).
+    
     See: https://openrouter.ai/docs/provider-routing
     """
     

@@ -725,9 +725,17 @@ class ModelCatalogManager:
                         "Enable AUTO_INSTALL_ZDR_FILTER (or install the filter manually) to show the ZDR toggle in the UI."
                     )
                 else:
+                    supported_models = 0
+                    for model in models:
+                        original_id = model.get("original_id")
+                        if isinstance(original_id, str) and original_id:
+                            zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                            if zdr_providers:
+                                supported_models += 1
                     self.logger.info(
-                        "Auto-attaching ZDR filter '%s' to %d model(s).",
+                        "Auto-attaching ZDR filter '%s' to %d/%d model(s) that have ZDR providers.",
                         zdr_filter_function_id,
+                        supported_models,
                         len(models),
                     )
 
@@ -845,7 +853,8 @@ class ModelCatalogManager:
                     direct_uploads_filter_function_id and valves.AUTO_ATTACH_DIRECT_UPLOADS_FILTER
                 )
 
-                # ZDR filter is offered for all models when enabled
+                # Check ZDR support for this model
+                zdr_supported = False
                 auto_attach_or_default_zdr = bool(
                     zdr_filter_function_id
                     and (
@@ -853,7 +862,12 @@ class ModelCatalogManager:
                         or valves.AUTO_DEFAULT_ZDR_FILTER
                     )
                 )
-                zdr_supported = auto_attach_or_default_zdr
+                if auto_attach_or_default_zdr:
+                    original_id = model.get("original_id")
+                    if isinstance(original_id, str) and original_id:
+                        zdr_providers = OpenRouterModelRegistry.zdr_providers_for(original_id)
+                        if zdr_providers:
+                            zdr_supported = True
 
                 # Look up provider routing filter ID for this model
                 # NOTE: Use original_id (e.g., "openai/gpt-4o") not openrouter_id (sanitized "openai.gpt-4o")
