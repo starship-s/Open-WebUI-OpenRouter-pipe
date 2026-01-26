@@ -1464,22 +1464,440 @@ author: starship-s
 author_url: https://github.com/starship-s/Open-WebUI-OpenRouter-pipe
 id: __FILTER_ID__
 description: Enforces Zero Data Retention mode on all OpenRouter requests. Only ZDR-compliant providers will be used.
-version: 0.3.0
+version: 0.4.0
 license: MIT
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+import os
+import re
+import time
+from typing import Any, Dict
+
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 
 try:
     from open_webui.env import SRC_LOG_LEVELS
 except ImportError:
     SRC_LOG_LEVELS = {}
 
+try:
+    from open_webui_openrouter_pipe.models.registry import OpenRouterModelRegistry
+except Exception:
+    OpenRouterModelRegistry = None
+
+try:
+    from open_webui_openrouter_pipe.core.config import _PIPE_RUNTIME_ID, _DEFAULT_PIPE_ID
+except Exception:
+    _PIPE_RUNTIME_ID = ""
+    _DEFAULT_PIPE_ID = "open_webui_openrouter_pipe"
+
 OWUI_OPENROUTER_PIPE_MARKER = "__MARKER__"
 _FEATURE_FLAG = "zdr"
+_OPENROUTER_TITLE = "Open WebUI OpenRouter ZDR Filter"
+_OPENROUTER_REFERER = "https://github.com/starship-s/Open-WebUI-OpenRouter-pipe"
+_OPENROUTER_FRONTEND_MODELS_URL = "https://openrouter.ai/api/frontend/models"
+_OPENROUTER_ZDR_ENDPOINT_SUFFIX = "/endpoints/zdr"
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_ZDR_CACHE_SECONDS = 3600  # Cache for 1 hour
+
+
+class ZDRProviderCache:
+    """Caches ZDR provider mappings from OpenRouter."""
+    
+    _providers: Dict[str, list[str]] = {}  # normalized model_id -> provider tags
+    _last_fetch: float = 0.0
+    _lock: asyncio.Lock = asyncio.Lock()
+    _DATE_SUFFIX_RE = re.compile(r"-\d{8}$")
+    
+    @classmethod
+    async def get_providers_for_model(
+        cls,
+        model_id: str,
+        *,
+        api_key: str,
+        base_url: str = _OPENROUTER_BASE_URL,
+        http_referer: str | None = None,
+        logger: logging.Logger,
+    ) -> list[str]:
+        """Get ZDR providers for a model, fetching and caching if needed."""
+        if not model_id:
+            return []
+        
+        # Check if cache is still valid
+        now = time.time()
+        if cls._providers and (now - cls._last_fetch) < _ZDR_CACHE_SECONDS:
+            return cls._get_cached_providers(model_id)
+        
+        # Refresh cache
+        async with cls._lock:
+            # Double-check after acquiring lock
+            if cls._providers and (now - cls._last_fetch) < _ZDR_CACHE_SECONDS:
+                return cls._get_cached_providers(model_id)
+            
+            await cls._refresh_cache(
+                api_key=api_key,
+                base_url=base_url,
+                http_referer=http_referer,
+                logger=logger,
+            )
+            return cls._get_cached_providers(model_id)
+    
+    @classmethod
+    def _get_cached_providers(cls, model_id: str) -> list[str]:
+        """Get providers from cache for a normalized model ID."""
+        normalized = cls._base_model(cls._normalize_model_id(model_id))
+        providers = cls._providers.get(normalized, [])
+        
+        if not providers:
+            stripped = cls._strip_dated_suffix(normalized)
+            if stripped != normalized:
+                providers = cls._providers.get(stripped, [])
+
+        # If not found, try without variant suffix (e.g., :free)
+        if not providers and ":" in normalized:
+            base = normalized.split(":", 1)[0]
+            providers = cls._providers.get(base, [])
+        
+        return list(providers)
+    
+    @classmethod
+    async def _refresh_cache(
+        cls,
+        *,
+        api_key: str,
+        base_url: str,
+        http_referer: str | None,
+        logger: logging.Logger,
+    ) -> None:
+        """Fetch ZDR endpoints from OpenRouter and rebuild the cache."""
+        if not aiohttp:
+            logger.warning("aiohttp not available, cannot fetch ZDR endpoints")
+            return
+        assert aiohttp is not None
+        
+        url = base_url.rstrip("/") + _OPENROUTER_ZDR_ENDPOINT_SUFFIX
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "X-Title": _OPENROUTER_TITLE,
+            "HTTP-Referer": (http_referer or _OPENROUTER_REFERER),
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+                frontend_data = await cls._fetch_frontend_catalog(session, logger)
+        except Exception as exc:
+            logger.debug("Failed to fetch ZDR endpoints: %s", exc)
+            return
+        
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            logger.debug("ZDR endpoints payload had unexpected structure")
+            return
+        
+        # Build alias mapping from frontend catalog for canonical normalization.
+        alias_to_norm = cls._build_alias_map(frontend_data)
+
+        # Build mapping: normalized model_id -> [provider tags]
+        mapping: Dict[str, list[str]] = {}
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+
+            model_slug = cls._normalize_zdr_model_slug(entry)
+            if not model_slug:
+                continue
+
+            provider_tag = cls._extract_provider_tag(entry)
+            if not provider_tag:
+                continue
+
+            normalized = cls._base_model(cls._normalize_model_id(model_slug))
+            canonical_norm = alias_to_norm.get(normalized)
+            if not canonical_norm:
+                stripped = cls._strip_dated_suffix(normalized)
+                canonical_norm = alias_to_norm.get(stripped, stripped)
+            providers = mapping.setdefault(canonical_norm, [])
+            if provider_tag not in providers:
+                providers.append(provider_tag)
+        
+        cls._providers = mapping
+        cls._last_fetch = time.time()
+        logger.debug("Refreshed ZDR provider cache with %d models", len(mapping))
+    
+    @staticmethod
+    async def _fetch_frontend_catalog(
+        session: Any, logger: logging.Logger
+    ) -> dict[str, Any] | None:
+        """Best-effort fetch of the frontend catalog for alias mapping."""
+        try:
+            assert aiohttp is not None
+            async with session.get(
+                _OPENROUTER_FRONTEND_MODELS_URL,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
+        except Exception as exc:
+            logger.debug("OpenRouter frontend catalog fetch failed: %s", exc)
+            return None
+
+        if isinstance(payload, dict):
+            return payload
+        logger.debug(
+            "Frontend catalog returned unexpected payload type: %s",
+            type(payload).__name__,
+        )
+        return None
+
+    @staticmethod
+    def _normalize_model_id(model_id: str) -> str:
+        """Normalize a model ID for cache lookup."""
+        if not isinstance(model_id, str):
+            return ""
+
+        # Remove openrouter.ai/ prefix if present
+        normalized = model_id.strip().lower()
+        if normalized.startswith("openrouter.ai/"):
+            normalized = normalized[14:]
+
+        # Sanitize special characters
+        normalized = re.sub(r"[^a-z0-9/:._-]", "-", normalized)
+
+        return normalized
+
+    @staticmethod
+    def _base_model(model_id: str) -> str:
+        """Strip variant suffixes like ':free' for base mapping."""
+        if not isinstance(model_id, str):
+            return ""
+        return model_id.split(":", 1)[0]
+
+    @staticmethod
+    def _strip_dated_suffix(model_id: str) -> str:
+        """Strip permaslug date suffixes like '-20251217'."""
+        if not isinstance(model_id, str):
+            return ""
+        return ZDRProviderCache._DATE_SUFFIX_RE.sub("", model_id)
+
+    @staticmethod
+    def _safe_split(value: Any, sep: str) -> list[str]:
+        if not isinstance(value, str):
+            return []
+        return [part.strip() for part in value.split(sep) if part and part.strip()]
+
+    @staticmethod
+    def _extract_slug_from_label(value: Any) -> str:
+        """Extract an author/model slug from a label like 'Provider | author/model'."""
+        if not isinstance(value, str):
+            return ""
+        candidate = value.strip()
+        if not candidate:
+            return ""
+
+        parts = ZDRProviderCache._safe_split(candidate, "|")
+        if parts:
+            candidate = parts[-1]
+
+        match = re.search(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+)", candidate)
+        if match:
+            return match.group(1)
+
+        if "/" in candidate:
+            return candidate.strip()
+        return ""
+
+    @staticmethod
+    def _normalize_zdr_model_slug(value: Any) -> str:
+        """Extract the model slug from a ZDR endpoint record."""
+
+        def _add_candidate(val: Any, *, split_name: bool, sink: list[str]) -> None:
+            if isinstance(val, str):
+                candidate = val.strip()
+                if not candidate:
+                    return
+                if split_name:
+                    slug = ZDRProviderCache._extract_slug_from_label(candidate)
+                    if slug:
+                        sink.append(slug)
+                sink.append(candidate)
+                return
+
+            if isinstance(val, dict):
+                for key in (
+                    "id",
+                    "slug",
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "name",
+                ):
+                    _add_candidate(val.get(key), split_name=(key == "name"), sink=sink)
+
+        candidates: list[str] = []
+        if isinstance(value, dict):
+            for key in ("model", "model_slug", "model_id", "slug", "id"):
+                _add_candidate(value.get(key), split_name=False, sink=candidates)
+
+            endpoint = value.get("endpoint")
+            if isinstance(endpoint, dict):
+                for key in (
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "slug",
+                    "permaslug",
+                    "id",
+                    "name",
+                ):
+                    _add_candidate(
+                        endpoint.get(key), split_name=(key == "name"), sink=candidates
+                    )
+
+            _add_candidate(value.get("name"), split_name=True, sink=candidates)
+        else:
+            _add_candidate(value, split_name=True, sink=candidates)
+
+        for candidate in candidates:
+            if candidate:
+                return candidate
+        return ""
+
+    @staticmethod
+    def _build_alias_map(frontend_data: dict[str, Any] | None) -> dict[str, str]:
+        """Build alias -> canonical model mapping from frontend catalog."""
+        if not isinstance(frontend_data, dict):
+            return {}
+        raw_items = frontend_data.get("data")
+        if not isinstance(raw_items, list):
+            return {}
+
+        alias_to_norm: dict[str, str] = {}
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("slug")
+            if not isinstance(slug, str) or not slug:
+                continue
+            canonical_norm = ZDRProviderCache._base_model(
+                ZDRProviderCache._normalize_model_id(slug)
+            )
+            if not canonical_norm:
+                continue
+
+            aliases: set[str] = set()
+            for key in ("slug", "permaslug", "canonical_slug"):
+                val = item.get(key)
+                if isinstance(val, str) and val:
+                    aliases.add(val)
+            endpoint = item.get("endpoint")
+            if isinstance(endpoint, dict):
+                for key in (
+                    "model",
+                    "model_slug",
+                    "model_variant_slug",
+                    "model_variant_permaslug",
+                    "slug",
+                    "permaslug",
+                ):
+                    val = endpoint.get(key)
+                    if isinstance(val, str) and val:
+                        aliases.add(val)
+
+            for alias in aliases:
+                alias_norm = ZDRProviderCache._base_model(
+                    ZDRProviderCache._normalize_model_id(alias)
+                )
+                if alias_norm:
+                    alias_to_norm.setdefault(alias_norm, canonical_norm)
+
+        return alias_to_norm
+
+    @staticmethod
+    def _extract_provider_tag(entry: dict) -> str:
+        """Extract provider tag from a ZDR endpoint entry."""
+        tag = entry.get("tag") or entry.get("provider_name")
+        if isinstance(tag, str) and tag.strip():
+            return tag.strip()
+
+        provider = entry.get("provider")
+        if isinstance(provider, dict):
+            tag = provider.get("tag") or provider.get("name") or provider.get("id")
+            if isinstance(tag, str) and tag.strip():
+                return tag.strip()
+
+        endpoint = entry.get("endpoint")
+        if isinstance(endpoint, dict):
+            provider_info = endpoint.get("provider_info")
+            if isinstance(provider_info, dict):
+                tag = (
+                    provider_info.get("slug")
+                    or provider_info.get("displayName")
+                    or provider_info.get("tag")
+                    or provider_info.get("name")
+                )
+                if isinstance(tag, str) and tag.strip():
+                    return tag.strip()
+
+        return ""
+
+
+def _strip_pipe_prefix(model_id: str) -> str:
+    if not isinstance(model_id, str) or not model_id:
+        return ""
+    prefixes = [
+        _PIPE_RUNTIME_ID,
+        _DEFAULT_PIPE_ID,
+        "open_webui_openrouter_pipe",
+        f"{_DEFAULT_PIPE_ID}_bundled",
+        "open_webui_openrouter_pipe_bundled",
+    ]
+    if "/" in model_id:
+        head, tail = model_id.split("/", 1)
+        if head in prefixes or head.startswith("open_webui_openrouter_pipe"):
+            return tail
+    for prefix in prefixes:
+        if prefix and model_id.startswith(f"{prefix}."):
+            return model_id[len(prefix) + 1 :]
+    return model_id
+
+
+def _unsanitize_model_id(model_id: str) -> str:
+    """Convert dot-sanitized ids back to author/model form when needed."""
+    if not isinstance(model_id, str) or not model_id:
+        return ""
+    if "/" not in model_id and "." in model_id:
+        head, tail = model_id.split(".", 1)
+        return f"{head}/{tail}"
+    return model_id
+
+
+def _run_or_schedule(coro: Any, logger: logging.Logger) -> Any:
+    """Run coroutine if no loop running, else schedule it."""
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop and running_loop.is_running():
+        running_loop.create_task(coro)
+        logger.debug("ZDR filter: scheduled async provider refresh on running loop")
+        return None
+
+    return asyncio.run(coro)
 
 
 class Filter:
@@ -1540,6 +1958,102 @@ class Filter:
 
             # Set ZDR to true
             provider["zdr"] = True
+            
+            # Get model ID from body/metadata
+            model_id = body.get("model_id", "") or body.get("model", "")
+            if not model_id and isinstance(__metadata__, dict):
+                meta_model = __metadata__.get("model")
+                if isinstance(meta_model, dict):
+                    model_id = (
+                        meta_model.get("original_id")
+                        or meta_model.get("openrouter_id")
+                        or meta_model.get("id")
+                        or ""
+                    )
+            if not model_id and isinstance(body.get("models"), list):
+                models_list = body["models"]
+                if models_list:
+                    model_id = models_list[0]
+
+            model_id = _strip_pipe_prefix(str(model_id)) if model_id else ""
+            model_id = _unsanitize_model_id(model_id) if model_id else ""
+            
+            # Fetch ZDR providers for this model
+            providers: list[str] = []
+            if model_id and OpenRouterModelRegistry is not None:
+                try:
+                    providers = OpenRouterModelRegistry.zdr_providers_for(str(model_id))
+                except Exception as exc:
+                    self.log.debug(
+                        "ZDR filter: Registry lookup failed for model %s: %s",
+                        model_id,
+                        exc,
+                    )
+
+            if not providers and model_id:
+                try:
+                    providers = ZDRProviderCache._get_cached_providers(model_id)
+                except Exception as exc:
+                    self.log.debug(
+                        "ZDR filter: Cache lookup failed for model %s: %s",
+                        model_id,
+                        exc,
+                    )
+
+            if model_id and aiohttp:
+                api_key = os.environ.get("OPENROUTER_API_KEY", "")
+                http_referer = os.environ.get("HTTP_REFERER_OVERRIDE", "").strip() or None
+                if not providers and api_key:
+                    try:
+                        result = _run_or_schedule(
+                            ZDRProviderCache.get_providers_for_model(
+                                model_id,
+                                api_key=api_key,
+                                http_referer=http_referer,
+                                logger=self.log,
+                            ),
+                            self.log,
+                        )
+                        if isinstance(result, list):
+                            providers = result
+                    except Exception as exc:
+                        self.log.warning(
+                            "ZDR filter: Failed to fetch providers for model %s: %s",
+                            model_id,
+                            exc,
+                        )
+                elif not providers:
+                    self.log.debug("ZDR filter: OPENROUTER_API_KEY not set, skipping provider.only")
+            elif not aiohttp:
+                self.log.warning("ZDR filter: aiohttp not available, cannot fetch ZDR providers")
+
+            if providers:
+                existing_only = provider.get("only")
+                if isinstance(existing_only, list):
+                    merged = []
+                    seen = set()
+                    for entry in list(existing_only) + providers:
+                        if not isinstance(entry, str):
+                            continue
+                        cleaned = entry.strip()
+                        if not cleaned or cleaned in seen:
+                            continue
+                        seen.add(cleaned)
+                        merged.append(cleaned)
+                    provider["only"] = merged
+                else:
+                    provider["only"] = providers
+                self.log.debug(
+                    "ZDR filter: Set provider.only=%s for model %s",
+                    providers,
+                    model_id,
+                )
+            else:
+                self.log.debug(
+                    "ZDR filter: No ZDR providers found for model %s",
+                    model_id,
+                )
+            
             self.log.debug("ZDR filter: Enforcing Zero Data Retention mode")
 
         return body
