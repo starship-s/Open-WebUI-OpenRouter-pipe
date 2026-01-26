@@ -6,12 +6,12 @@ for the ZDR filter, similar to how OpenRouter Search filter works.
 
 Features:
 - AUTO_INSTALL_ZDR_FILTER: Automatically creates/updates the ZDR filter function
-- AUTO_ATTACH_ZDR_FILTER: Attaches ZDR filter to models with ZDR providers
-- AUTO_DEFAULT_ZDR_FILTER: Enables ZDR by default on supported models
+- AUTO_ATTACH_ZDR_FILTER: Attaches ZDR filter to all models
+- AUTO_DEFAULT_ZDR_FILTER: Enables ZDR by default on all models
 
 When all three valves are enabled (default: True), the pipe will:
 - Create the ZDR filter function in Open WebUI on first load
-- Attach it to models that have ZDR-compliant providers available
+- Attach it to all models
 - Enable ZDR by default while allowing users to toggle it off per chat
 
 This eliminates the need to manually install or configure the filter.
@@ -89,10 +89,6 @@ class Filter:
     When enabled, this filter sets provider.zdr=true on all requests,
     ensuring that only ZDR-compliant providers are used. This is useful
     for compliance with data retention policies.
-    
-    This filter enforces ZDR on requests. To also HIDE non-ZDR models from
-    the model list, enable the HIDE_MODELS_WITHOUT_ZDR valve on the pipe itself
-    (Admin -> Functions -> [OpenRouter Pipe] -> Valves).
     
     See: https://openrouter.ai/docs/provider-routing
     """
