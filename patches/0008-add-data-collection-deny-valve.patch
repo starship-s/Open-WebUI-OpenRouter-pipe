@@ -1,0 +1,24 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Add global data-collection deny valve
+
+This patch adds a valve that forces `provider.data_collection="deny"` on every
+OpenRouter request to restrict providers that store user data.
+
+Highlights:
+- Adds ENFORCE_DATA_COLLECTION_DENY valve (default: True)
+- Injects provider.data_collection="deny" for all requests
+
+To apply: git apply patches/0008-add-data-collection-deny-valve.patch
+To revert: git apply -R patches/0008-add-data-collection-deny-valve.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/core/config.py
+- open_webui_openrouter_pipe/requests/orchestrator.py
+- docs/valves_and_configuration_atlas.md
+- README.md
+- open_webui_openrouter_pipe.py
+

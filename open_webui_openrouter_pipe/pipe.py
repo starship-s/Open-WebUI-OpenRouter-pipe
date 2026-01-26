@@ -6603,6 +6603,64 @@ class Filter:
             self.logger.warning("Requested models not found in OpenRouter catalog: %s", ", ".join(sorted(missing)))
         return selected or available_models
 
+    @staticmethod
+    def _csv_set(value: Any) -> set[str]:
+        if not isinstance(value, str):
+            return set()
+        parts: list[str] = []
+        for raw in value.split(","):
+            item = (raw or "").strip().lower()
+            if item:
+                parts.append(item)
+        return set(parts)
+
+    @staticmethod
+    def _zdr_excluded_provider_set(valves: "Pipe.Valves") -> set[str]:
+        raw = getattr(valves, "ZDR_EXCLUDED_PROVIDERS", "")
+        return Pipe._csv_set(raw)
+
+    @staticmethod
+    def _apply_zdr_provider_exclusions(
+        provider: dict[str, Any],
+        *,
+        valves: "Pipe.Valves",
+    ) -> dict[str, Any]:
+        exclude = Pipe._zdr_excluded_provider_set(valves)
+        if not exclude or not isinstance(provider, dict):
+            return provider
+        if not provider.get("zdr"):
+            return provider
+
+        existing = provider.get("ignore")
+        ignore_list: list[str] = []
+        if isinstance(existing, str):
+            ignore_list = [existing]
+        elif isinstance(existing, list):
+            ignore_list = [p for p in existing if isinstance(p, str) and p.strip()]
+
+        combined: list[str] = []
+        seen: set[str] = set()
+        for entry in ignore_list:
+            text = entry.strip()
+            if not text:
+                continue
+            lowered = text.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            combined.append(text)
+
+        for entry in sorted(exclude):
+            lowered = entry.strip().lower()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            combined.append(entry.strip())
+
+        if combined:
+            provider["ignore"] = combined
+        return provider
+
     # ----------------------------------------------------------------------
     # _apply_model_filters (34 lines)
     # ----------------------------------------------------------------------

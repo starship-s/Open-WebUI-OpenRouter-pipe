@@ -807,6 +807,12 @@ class Valves(BaseModel):
             "`provider.ignore` when ZDR is active."
         ),
     )
+    ENFORCE_DATA_COLLECTION_DENY: bool = Field(
+        default=True,
+        description=(
+            "When enabled, force `provider.data_collection='deny'` on every OpenRouter request."
+        ),
+    )
     VARIANT_MODELS: str = Field(
         default="",
         title="Variant models",

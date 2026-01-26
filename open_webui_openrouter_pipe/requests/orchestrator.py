@@ -504,6 +504,11 @@ class RequestOrchestrator:
                 valves=valves,
             )
 
+        if getattr(valves, "ENFORCE_DATA_COLLECTION_DENY", True):
+            if not isinstance(responses_body.provider, dict):
+                responses_body.provider = {}
+            responses_body.provider["data_collection"] = "deny"
+
         if valves.USE_MODEL_MAX_OUTPUT_TOKENS:
             if responses_body.max_output_tokens is None:
                 default_max = ModelFamily.max_completion_tokens(responses_body.model)
