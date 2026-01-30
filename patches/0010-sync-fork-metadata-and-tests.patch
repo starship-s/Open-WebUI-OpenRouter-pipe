@@ -1,0 +1,94 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Sync fork metadata, changelog, and ZDR test toggles
+
+This patch keeps fork version metadata, docs, and tests aligned with the
+ZDR feature set while rebasing onto upstream updates.
+
+It ensures:
+- Fork metadata advertises Open WebUI 0.7.0+ compatibility
+- Fork version strings stay at 2.0.6-zdr across metadata sources
+- Changelog retains fork release headings
+- ZDR filter docs and tests mention auto-install valves
+
+To apply: git apply patches/0010-sync-fork-metadata-and-tests.patch
+To revert: git apply -R patches/0010-sync-fork-metadata-and-tests.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- CHANGELOG.md - Keep fork release heading (2.0.6)
+- README.md - Open WebUI compatibility badge stays at 0.7.0+
+- open_webui_openrouter_pipe.py - Metadata values (required version + fork version)
+- open_webui_openrouter_pipe/__init__.py - __version__ fallback
+- pyproject.toml - Project version
+- filters/README.md - ZDR filter overview and v0.4.0 behavior
+- tests/test_models.py - ZDR auto-install valves in sync key tests
+
+================================================================================
+FILE: README.md
+================================================================================
+
+1. Ensure the Open WebUI compatibility badge remains at 0.7.0+:
+
+   [![Open WebUI Compatible](https://img.shields.io/badge/Open%20WebUI-0.7.0%2B-green.svg)](https://openwebui.com/)
+
+================================================================================
+FILE: open_webui_openrouter_pipe.py
+================================================================================
+
+1. Keep fork metadata aligned:
+
+   required_open_webui_version: 0.7.0
+   version: 2.0.6-zdr
+
+================================================================================
+FILE: open_webui_openrouter_pipe/__init__.py
+================================================================================
+
+1. Update the fallback version string:
+
+   __version__ = "2.0.6-zdr"
+
+================================================================================
+FILE: pyproject.toml
+================================================================================
+
+1. Update the project version:
+
+   version = "2.0.6-zdr"
+
+================================================================================
+FILE: CHANGELOG.md
+================================================================================
+
+1. Keep fork release headings at the top:
+
+   ## 2.0.6-zdr (2026-01-26)
+
+================================================================================
+FILE: filters/README.md
+================================================================================
+
+1. Document the ZDR filter behavior and v0.4.0 changes:
+
+   - Auto-fetches ZDR providers from `/endpoints/zdr`
+   - Sets `provider.only` and `provider.zdr`
+   - Requires `aiohttp` and `OPENROUTER_API_KEY`
+
+================================================================================
+FILE: tests/test_models.py
+================================================================================
+
+1. Ensure ZDR auto-install valves are included in catalog sync tests:
+
+   pipe.valves.AUTO_INSTALL_ZDR_FILTER = False
+   pipe.valves.AUTO_ATTACH_ZDR_FILTER = False
+   pipe.valves.AUTO_DEFAULT_ZDR_FILTER = False
+
+2. Include ZDR valves in the metadata sync key tuple:
+
+   bool(pipe.valves.AUTO_ATTACH_ZDR_FILTER),
+   bool(pipe.valves.AUTO_INSTALL_ZDR_FILTER),
+   bool(pipe.valves.AUTO_DEFAULT_ZDR_FILTER),

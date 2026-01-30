@@ -265,6 +265,26 @@ the Pipe class for model filtering, catalog sync, and request handling.
 - Adds Pipe CSV parsing helper for ZDR exclusions
 - Adds Pipe helpers for excluded providers and provider.ignore merges
 
+### 0010-sync-fork-metadata-and-tests.patch
+
+Keeps fork metadata, documentation, and tests aligned with the ZDR feature set
+while rebasing onto upstream updates.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `README.md` - Updates Open WebUI compatibility badge
+  - `open_webui_openrouter_pipe.py` - Keeps required version + fork version
+  - `open_webui_openrouter_pipe/__init__.py` - Updates `__version__` fallback
+  - `pyproject.toml` - Updates project version
+  - `CHANGELOG.md` - Keeps fork release headings
+  - `filters/README.md` - Documents ZDR filter v0.4.0 behavior
+  - `tests/test_models.py` - Adds ZDR auto-install valves to sync key tests
+
+**Key changes:**
+- Maintains `required_open_webui_version: 0.7.0`
+- Keeps fork version strings at `2.0.6-zdr`
+- Ensures ZDR auto-install valves are tracked in catalog sync tests
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:
