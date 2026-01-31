@@ -1780,6 +1780,48 @@ class TestReasoningThinking:
         assert reasoning_completed, "Expected reasoning:completed"
 
     @pytest.mark.asyncio
+    async def test_streaming_loop_reasoning_output_item_done_dedupes_incremental(self, monkeypatch, pipe_instance_async):
+        """Skip reasoning snapshot when incremental deltas already streamed."""
+        pipe = pipe_instance_async
+        body = ResponsesBody(model="test/model", input=[], stream=True)
+
+        events = [
+            {
+                "type": "response.output_item.added",
+                "item": {"type": "reasoning", "id": "rs-1"},
+            },
+            {"type": "response.reasoning_text.delta", "delta": "Step 1."},
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "reasoning",
+                    "id": "rs-1",
+                    "content": [{"type": "reasoning_text", "text": "Step 1."}],
+                },
+            },
+            {"type": "response.completed", "response": {"output": [], "usage": {}}},
+        ]
+
+        monkeypatch.setattr(Pipe, "send_openrouter_streaming_request", _make_fake_stream(events))
+
+        emitted: list[dict] = []
+        async def emitter(event):
+            emitted.append(event)
+
+        await pipe._run_streaming_loop(
+            body,
+            pipe.valves,
+            emitter,
+            metadata={"model": {"id": "test"}},
+            tools={},
+            session=cast(Any, object()),
+            user_id="user-123",
+        )
+
+        reasoning_deltas = _collect_events_of_type(emitted, "reasoning:delta")
+        assert len(reasoning_deltas) == 1
+
+    @pytest.mark.asyncio
     async def test_streaming_loop_thinking_status_only_mode(self, monkeypatch, pipe_instance_async):
         """Test thinking output in 'status' mode (status bar only)."""
         pipe = pipe_instance_async

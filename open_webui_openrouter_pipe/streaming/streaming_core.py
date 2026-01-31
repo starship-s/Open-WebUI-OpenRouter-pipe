@@ -910,6 +910,7 @@ class StreamingHandler:
                                 )
                             if append:
                                 note_generation_activity()
+                                status_emitted = bool(thinking_status_enabled)
 
                                 if event_emitter and thinking_box_enabled:
                                     await event_emitter(
@@ -919,6 +920,7 @@ class StreamingHandler:
                                                 "content": reasoning_buffer,
                                                 "delta": append,
                                                 "event": etype,
+                                                "status_emitted": status_emitted,
                                             },
                                         }
                                     )
@@ -1420,6 +1422,22 @@ class StreamingHandler:
                         elif item_type == "reasoning":
                             title = None # Don't emit a title for reasoning items
                             key = _reasoning_stream_key(event, etype)
+                            if key in reasoning_stream_has_incremental:
+                                if (
+                                    event_emitter
+                                    and thinking_box_enabled
+                                    and reasoning_stream_buffers.get(key)
+                                    and key not in reasoning_stream_completed
+                                ):
+                                    await event_emitter(
+                                        {
+                                            "type": "reasoning:completed",
+                                            "data": {"content": reasoning_buffer},
+                                        }
+                                    )
+                                    reasoning_stream_completed.add(key)
+                                    reasoning_completed_emitted = True
+                                continue
                             snapshot = _extract_reasoning_text_from_item(item)
                             normalized_snapshot = (
                                 _normalize_surrogate_chunk(snapshot, "reasoning") if snapshot else ""

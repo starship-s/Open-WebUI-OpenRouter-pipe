@@ -749,7 +749,7 @@ class EventEmitterHandler:
                                 reasoning_content=delta,
                             ),
                         )
-                    if thinking_status_enabled:
+                    if thinking_status_enabled and not data.get("status_emitted"):
                         await _maybe_emit_reasoning_status(delta)
                 return
 

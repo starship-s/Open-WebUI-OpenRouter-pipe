@@ -285,6 +285,18 @@ while rebasing onto upstream updates.
 - Keeps fork version strings at `2.0.6-zdr`
 - Ensures ZDR auto-install valves are tracked in catalog sync tests
 
+### 0011-fix-thinking-output-duplication.patch
+
+Prevents duplicated thinking output when reasoning arrives both incrementally
+and as a snapshot, and avoids double status emission in "both" thinking mode.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/streaming/streaming_core.py` - Skips redundant reasoning snapshots and tags status emission
+  - `open_webui_openrouter_pipe/streaming/event_emitter.py` - Skips duplicate status emission when tagged
+  - `tests/test_streaming_handler.py` - Adds reasoning dedupe coverage
+  - `tests/test_event_emitter.py` - Adds status emission dedupe coverage
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:

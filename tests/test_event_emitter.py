@@ -899,6 +899,48 @@ async def test_make_middleware_stream_emitter_reasoning_delta(pipe_instance_asyn
 
 
 @pytest.mark.asyncio
+async def test_make_middleware_stream_emitter_reasoning_delta_skips_status_when_flagged(pipe_instance_async):
+    """Test reasoning delta skips status when status_emitted is set."""
+    pipe = pipe_instance_async
+
+    class _FakeJob:
+        def __init__(self):
+            self.request_id = "req-test"
+            self.metadata = {}
+            self.body = {"model": "test-model"}
+            self.valves = pipe.Valves(
+                THINKING_OUTPUT_MODE="both",
+                MIDDLEWARE_STREAM_QUEUE_MAXSIZE=0,
+            )
+            self.future = asyncio.get_running_loop().create_future()
+            self.event_emitter = None
+
+    job = _FakeJob()
+    queue: asyncio.Queue[dict | str | None] = asyncio.Queue()
+
+    emitter = pipe._make_middleware_stream_emitter(cast(Any, job), queue)
+
+    await emitter(
+        {
+            "type": "reasoning:delta",
+            "data": {"delta": "Thinking...", "status_emitted": True},
+        }
+    )
+
+    items: list[dict | str | None] = []
+    while not queue.empty():
+        items.append(queue.get_nowait())
+
+    assert items, "Expected reasoning chunk in queue"
+    assert not any(
+        isinstance(item, dict)
+        and isinstance(item.get("event"), dict)
+        and item["event"].get("type") == "status"
+        for item in items
+    )
+
+
+@pytest.mark.asyncio
 async def test_make_middleware_stream_emitter_status_mode(pipe_instance_async):
     """Test middleware stream emitter with status thinking mode."""
     pipe = pipe_instance_async

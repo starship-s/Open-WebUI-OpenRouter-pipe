@@ -1,0 +1,24 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Fix duplicate thinking output in streaming
+
+This patch prevents duplicate thinking output when reasoning data arrives
+both incrementally and as a final snapshot, and avoids emitting status lines
+twice in "both" thinking mode.
+
+Highlights:
+- Skip reasoning snapshots if incremental deltas already streamed.
+- Tag reasoning deltas so middleware skips duplicate status emission.
+- Add regression tests for the dedupe behavior.
+
+To apply: git apply patches/0011-fix-thinking-output-duplication.patch
+To revert: git apply -R patches/0011-fix-thinking-output-duplication.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/streaming/streaming_core.py
+- open_webui_openrouter_pipe/streaming/event_emitter.py
+- tests/test_streaming_handler.py
+- tests/test_event_emitter.py
