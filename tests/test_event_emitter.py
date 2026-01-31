@@ -969,6 +969,38 @@ async def test_make_middleware_stream_emitter_status_mode(pipe_instance_async):
 
 
 @pytest.mark.asyncio
+async def test_make_middleware_stream_emitter_status_dedupes_consecutive(pipe_instance_async):
+    """Test status events are deduped when identical."""
+    pipe = pipe_instance_async
+
+    class _FakeJob:
+        def __init__(self):
+            self.request_id = "req-test"
+            self.metadata = {}
+            self.body = {"model": "test-model"}
+            self.valves = pipe.Valves(
+                THINKING_OUTPUT_MODE="status",
+                MIDDLEWARE_STREAM_QUEUE_MAXSIZE=0,
+            )
+            self.future = asyncio.get_running_loop().create_future()
+            self.event_emitter = None
+
+    job = _FakeJob()
+    queue: asyncio.Queue[dict | str | None] = asyncio.Queue()
+
+    emitter = pipe._make_middleware_stream_emitter(cast(Any, job), queue)
+
+    await emitter({"type": "status", "data": {"description": "Thinking…", "done": False}})
+    await emitter({"type": "status", "data": {"description": "Thinking…", "done": False}})
+
+    items: list[dict | str | None] = []
+    while not queue.empty():
+        items.append(queue.get_nowait())
+
+    assert len(items) == 1
+
+
+@pytest.mark.asyncio
 async def test_make_middleware_stream_emitter_tool_calls(pipe_instance_async):
     """Test middleware stream emitter with tool calls."""
     pipe = pipe_instance_async

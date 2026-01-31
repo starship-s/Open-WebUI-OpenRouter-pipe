@@ -1,0 +1,20 @@
+From: starship-s <starship-s@users.noreply.github.com>
+Subject: [PATCH] Deduplicate consecutive status events
+
+This patch avoids emitting identical status messages twice in a row in the
+middleware stream, preventing duplicate UI status lines.
+
+Highlights:
+- Dedupes consecutive identical status descriptions (same done flag).
+- Adds a regression test for status dedupe behavior.
+
+To apply: git apply patches/0012-dedupe-status-events.patch
+To revert: git apply -R patches/0012-dedupe-status-events.patch
+
+Note: This patch modifies existing upstream files. When upstream updates these
+files, you may need to resolve merge conflicts.
+---
+
+Files modified:
+- open_webui_openrouter_pipe/streaming/event_emitter.py
+- tests/test_event_emitter.py

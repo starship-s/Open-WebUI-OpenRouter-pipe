@@ -297,6 +297,16 @@ and as a snapshot, and avoids double status emission in "both" thinking mode.
   - `tests/test_streaming_handler.py` - Adds reasoning dedupe coverage
   - `tests/test_event_emitter.py` - Adds status emission dedupe coverage
 
+### 0012-dedupe-status-events.patch
+
+Deduplicates consecutive identical status messages to prevent repeated UI
+status lines.
+
+- **Type:** Modifies existing files (may require conflict resolution on upstream updates)
+- **Files modified:**
+  - `open_webui_openrouter_pipe/streaming/event_emitter.py` - Skips consecutive identical status events
+  - `tests/test_event_emitter.py` - Adds status dedupe coverage
+
 ## ZDR Feature Summary
 
 The ZDR feature has two components:

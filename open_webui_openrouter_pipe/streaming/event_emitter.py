@@ -593,6 +593,8 @@ class EventEmitterHandler:
         answer_started = False
         reasoning_status_buffer = ""
         reasoning_status_last_emit: float | None = None
+        last_status_description: str | None = None
+        last_status_done: bool | None = None
 
         thinking_mode = job.valves.THINKING_OUTPUT_MODE
         thinking_box_enabled = thinking_mode in {"open_webui", "both"}
@@ -779,6 +781,17 @@ class EventEmitterHandler:
                 usage = data.get("usage")
                 if isinstance(usage, dict) and usage:
                     await self._put_middleware_stream_item(job, stream_queue, {"usage": usage})
+                return
+
+            if etype == "status":
+                description = data.get("description")
+                done = bool(data.get("done", False))
+                normalized = description.strip() if isinstance(description, str) else ""
+                if normalized and normalized == last_status_description and done == last_status_done:
+                    return
+                last_status_description = normalized if normalized else None
+                last_status_done = done if normalized else None
+                await self._put_middleware_stream_item(job, stream_queue, {"event": event})
                 return
 
             await self._put_middleware_stream_item(job, stream_queue, {"event": event})
